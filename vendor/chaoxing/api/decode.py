@@ -188,6 +188,8 @@ def decode_course_card(html_text: str, include_completed_media: bool = False) ->
     # 处理所有附件任务
     cards = cards_data.get("attachments", [])
     job_list = _process_attachment_cards(cards, include_completed_media=include_completed_media)
+    if include_completed_media and cards:
+        logger.info("章节附件解析：原始附件 {} 个，解析出任务 {} 个", len(cards), len(job_list))
 
     return job_list, job_info
 
@@ -231,12 +233,16 @@ def _process_attachment_cards(cards: List[Dict[str, Any]], include_completed_med
     job_list = []
 
     for index, card in enumerate(cards):
+        # Chaoxing removes `job` from already-passed video attachments. A replay
+        # must retain those cards through BOTH the passed and non-job filters.
+        replay_video = bool(include_completed_media and card.get("isPassed", False)
+                            and str(card.get("type", "")).lower() == "video")
         # 跳过已通过的任务
-        if card.get("isPassed", False) and not (include_completed_media and card.get("type", "").lower() == "video"):
+        if card.get("isPassed", False) and not replay_video:
             continue
 
         # 处理无job字段的特殊任务
-        if card.get("job") is None:
+        if card.get("job") is None and not replay_video:
             # 尝试识别阅读任务
             read_job = _process_read_task(card)
             if read_job:

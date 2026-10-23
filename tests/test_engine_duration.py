@@ -18,12 +18,27 @@ def engine(monkeypatch, tmp_path):
     return SimpleNamespace(main=main, base=api.base, decode=api.decode)
 
 
-def test_completed_media_decoding_is_opt_in(engine):
-    video = {"type": "video", "isPassed": True, "job": True, "jobid": "v1", "mid": "m1", "objectId": "o1", "property": {"name": "已完成视频"}}
+@pytest.mark.parametrize("job_field", ["missing", True, None])
+def test_completed_media_decoding_is_opt_in(engine, job_field):
+    video = {"type": "video", "isPassed": True, "jobid": "v1", "mid": "m1", "objectId": "o1", "property": {"name": "已完成视频", "type": ".mp4"}}
+    if job_field != "missing":
+        video["job"] = job_field
     work = {"type": "workid", "isPassed": True, "job": True, "jobid": "exam1"}
     assert engine.decode._process_attachment_cards([video, work]) == []
     jobs = engine.decode._process_attachment_cards([video, work], include_completed_media=True)
     assert len(jobs) == 1 and jobs[0]["objectid"] == "o1"
+
+
+def test_full_card_page_with_passed_video_without_job_marker(engine):
+    # Sanitized structure verified against an authenticated, read-only response.
+    # No platform identifiers, cookies or credentials are included in fixtures.
+    import json
+    card = {"aid": "test", "type": "video", "isPassed": True, "jobid": "v1", "mid": "m1", "objectId": "o1", "playTime": 120000,
+            "property": {"name": "测试视频", "type": ".mp4", "_jobid": "v1", "module": "insertvideo"}}
+    html = "<html><script>var mArg=" + json.dumps({"defaults": {"knowledgeid": "chapter1"}, "attachments": [card]}) + ";</script></html>"
+    jobs, _ = engine.decode.decode_course_card(html, include_completed_media=True)
+    assert len(jobs) == 1 and jobs[0]["type"] == "video" and jobs[0]["jobid"] == "v1"
+    assert engine.decode.decode_course_card(html)[0] == []
 
 
 def test_completed_chapter_replays_media_without_repeating_exam(engine, monkeypatch):
