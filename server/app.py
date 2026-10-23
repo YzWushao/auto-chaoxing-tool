@@ -17,7 +17,7 @@ from flask import Flask, jsonify, request, send_from_directory, session
 from werkzeug.exceptions import HTTPException
 
 from .chaoxing import ChaoxingClient, PlatformError, QRLogin, SessionExpired
-from .config import API_DEFAULTS, PROVIDERS, ROOT, account_defaults, public_api, public_config, validate_api, validate_config
+from .config import API_DEFAULTS, PROVIDERS, ROOT, VERSION, account_defaults, public_api, public_config, validate_api, validate_config
 from .store import Store
 from .tasks import ACTIVE, TaskManager
 
@@ -139,9 +139,18 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def index():
         return send_from_directory(ROOT / "web", "index.html")
 
+    @app.get("/legal/<document>")
+    def legal(document):
+        documents = {"license": ROOT / "LICENSE", "notice": ROOT / "NOTICE.md",
+                     "sources": ROOT / "THIRD_PARTY.md", "sign-mit": ROOT / "licenses" / "chaoxing-sign-cli-MIT.txt"}
+        path = documents.get(document)
+        if path is None:
+            raise KeyError(document)
+        return send_from_directory(path.parent, path.name, mimetype="text/plain; charset=utf-8")
+
     @app.get("/api/health")
     def health():
-        return jsonify(status="ok", version="0.1.0")
+        return jsonify(status="ok", version=VERSION)
 
     @app.get("/api/session")
     def current_session():
@@ -182,7 +191,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
                        settings={"api": public_api(settings["api"])},
                        schema={"api": public_api(API_DEFAULTS), "providers": PROVIDERS},
                        jobs=tasks.jobs(session["owner"]), events=store.events(session["owner"]),
-                       system={"version": "0.1.0", "ocr": importlib.util.find_spec("ddddocr") is not None},
+                       system={"version": VERSION, "ocr": importlib.util.find_spec("ddddocr") is not None},
                        integrations=[{"name": "NapCat", "state": "planned", "description": "获取签到二维码、辅助登录和状态消息"},
                                      {"name": "第三方推送", "state": "planned", "description": "登录失效、刷课完成、签到结果通知"}])
 

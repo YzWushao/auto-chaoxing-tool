@@ -16,6 +16,9 @@ def test_guards_and_headers(app, browser):
     assert response.headers["X-Frame-Options"] == "DENY"
     assert "script-src 'self'" in response.headers["Content-Security-Policy"]
     assert browser.get("/session").headers["Cache-Control"] == "no-store"
+    for path in ("license", "sources", "notice", "sign-mit"):
+        assert browser.client.get("/legal/" + path).status_code == 200
+    assert browser.client.get("/legal/not-a-file").status_code == 404
 
 
 def test_multiple_accounts_and_workspace_isolation(app, browser):

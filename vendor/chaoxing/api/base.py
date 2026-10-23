@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Modified 2026-10-23 by auto-chaoxing-tool: opt-in completed-media decoding.
 import functools
 import random
 import secrets
@@ -636,7 +637,10 @@ class Chaoxing:
                 logger.error(_resp.text)
                 return [], {}
 
-            _job_list, _job_info = decode_course_card(_resp.text)
+            if self.kwargs.get("replay_completed_media", False):
+                _job_list, _job_info = decode_course_card(_resp.text, include_completed_media=True)
+            else:
+                _job_list, _job_info = decode_course_card(_resp.text)
             if _job_info.get("notOpen", False):
                 # 直接返回, 节省一次请求
                 logger.info("该章节未开放")

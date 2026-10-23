@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE = ROOT / "vendor" / "chaoxing"
+VERSION = "0.1.1"
 MASK = "••••••••"
 SECRET_FIELDS = {"tokens", "key", "siliconflow_key", "go_authorization"}
 PROVIDERS = ["TikuYanxi", "TikuLike", "TikuAdapter", "AI", "SiliconFlow", "TikuGo", "TikuManual"]
@@ -20,7 +21,8 @@ def template():
 API_DEFAULTS = template()
 API_DEFAULTS.update(provider="", check_llm_connection="false", submit="false")
 STUDY_DEFAULTS = dict(speed=1.0, jobs=1, notopen_action="retry", retry_interval=3.0,
-                      work_redo_enabled=False, work_max_retries=3, add_learning_count=False, target_count=100)
+                      work_redo_enabled=False, work_max_retries=3, add_learning_count=False, target_count=100,
+                      study_mode="duration", replay_completed=True)
 
 
 def account_defaults():
@@ -33,6 +35,7 @@ def public_api(value):
 
 def public_config(value):
     result = copy.deepcopy(value)
+    result["study"] = {**STUDY_DEFAULTS, **result["study"]}
     result["api"] = public_api(result["api"])
     return result
 
@@ -69,6 +72,7 @@ def validate_config(data, current):
     if not isinstance(data, dict) or set(data) - {"study", "api", "course_keys", "inherit_api"}:
         raise ValueError("配置格式不正确")
     value = copy.deepcopy(current)
+    value["study"] = {**STUDY_DEFAULTS, **value["study"]}
     if "inherit_api" in data:
         if not isinstance(data["inherit_api"], bool):
             raise ValueError("继承全局配置需要为布尔值")
@@ -95,9 +99,11 @@ def validate_config(data, current):
             if name in ("jobs", "work_max_retries", "target_count") and number != int(number):
                 raise ValueError(f"{name} 需要为整数")
             value["study"][name] = int(number) if name in ("jobs", "work_max_retries", "target_count") else number
-        for name in ("work_redo_enabled", "add_learning_count"):
+        for name in ("work_redo_enabled", "add_learning_count", "replay_completed"):
             if not isinstance(value["study"][name], bool):
                 raise ValueError(f"{name} 需要为布尔值")
         if value["study"]["notopen_action"] not in ("retry", "continue", "ask"):
             raise ValueError("无效的关闭章节处理方式")
+        if value["study"]["study_mode"] not in ("duration", "task"):
+            raise ValueError("学习模式需要为 duration 或 task")
     return value

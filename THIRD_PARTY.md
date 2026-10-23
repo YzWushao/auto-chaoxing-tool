@@ -1,5 +1,7 @@
 # 开源来源与改动
 
+本项目明确声明复用及借鉴以下两个开源项目，感谢原作者及贡献者。原版权和许可证保留；完整声明见 [NOTICE.md](NOTICE.md)。以下修改日期均为 2026-10-23。
+
 ## Samueli924/chaoxing
 
 - 来源：https://github.com/Samueli924/chaoxing
@@ -7,7 +9,10 @@
 - 许可证：GPL-3.0，保留在 `vendor/chaoxing/LICENSE` 与根目录 `LICENSE`。
 - 源码：`vendor/chaoxing/`，由上述版本导出，随新项目一起提供，运行时不依赖子模块下载。
 - 本地修改：`api/cxsecret_font.py` 的非打包资源路径改为引擎目录，支持分账户任务在独立工作目录运行。
+- 本地修改：`api/decode.py` 与 `api/base.py` 新增可选的已完成媒体解析；默认 CLI 行为不变。
+- 本地修改：`main.py` 为 Web 的按时长模式增加已完成章节内媒体重看和重复卡片过滤；已完成章节的测验不会重交。
 - 适配层：`server/worker.py` 使用内存 Cookies 与配置、结构化日志及网页输入桥接，按课程并行、课程内章节顺序处理，并重新读取平台章节进度确认完成状态。
+- 计时适配：`server/media.py` 参考上游 `api/base.py` 的媒体上报接口；取消提前上报终点的探测，按真实经过时间推进位置，直到本轮计时结束才接受完成结果。
 
 ## Yink-Design/chaoxing-sign-cli
 

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Modified 2026-10-23 by auto-chaoxing-tool: retain completed media only on request.
 """
 超星学习通数据解析模块
 
@@ -154,7 +155,7 @@ def _extract_points_from_chapter(chapter_unit) -> List[Dict[str, Any]]:
     return point_list
 
 
-def decode_course_card(html_text: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+def decode_course_card(html_text: str, include_completed_media: bool = False) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     解析任务点列表页面，提取任务点信息
     
@@ -186,7 +187,7 @@ def decode_course_card(html_text: str) -> Tuple[List[Dict[str, Any]], Dict[str, 
 
     # 处理所有附件任务
     cards = cards_data.get("attachments", [])
-    job_list = _process_attachment_cards(cards)
+    job_list = _process_attachment_cards(cards, include_completed_media=include_completed_media)
 
     return job_list, job_info
 
@@ -217,7 +218,7 @@ def _extract_job_info(cards_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _process_attachment_cards(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _process_attachment_cards(cards: List[Dict[str, Any]], include_completed_media: bool = False) -> List[Dict[str, Any]]:
     """
     处理所有附件任务卡片，强化直播任务识别逻辑
     
@@ -231,7 +232,7 @@ def _process_attachment_cards(cards: List[Dict[str, Any]]) -> List[Dict[str, Any
 
     for index, card in enumerate(cards):
         # 跳过已通过的任务
-        if card.get("isPassed", False):
+        if card.get("isPassed", False) and not (include_completed_media and card.get("type", "").lower() == "video"):
             continue
 
         # 处理无job字段的特殊任务

@@ -1,4 +1,5 @@
 ##
+# Modified 2026-10-23 by auto-chaoxing-tool: resolve assets relative to engine.
 # @Author: SocialSisterYi
 # @Edit: Samueli924
 # @Reference: https://github.com/SocialSisterYi/xuexiaoyi-to-xuexitong-tampermonkey-proxy

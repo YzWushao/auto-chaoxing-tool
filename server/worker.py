@@ -10,8 +10,10 @@ import os
 import sys
 import threading
 import time
+from types import MethodType
 
-from .config import ENGINE
+from .config import ENGINE, STUDY_DEFAULTS
+from .media import timed_study_video
 from .tasks import redact
 
 wire = sys.stdout
@@ -68,7 +70,7 @@ def run(spec):
     import api.cxsecret_font as fonts
     fonts.resource_path = lambda relative: str(ENGINE / relative)
     import main as engine
-    common = {**spec["study"], "use_cookies": True, "username": "", "password": ""}
+    common = {**STUDY_DEFAULTS, **spec["study"], "use_cookies": True, "username": "", "password": ""}
     client = engine.init_chaoxing(common, spec["api"])
     if not client.login(login_with_cookies=True).get("status"):
         emit("expired")
@@ -78,6 +80,30 @@ def run(spec):
         raise ValueError("未选择课程，任务不会启动")
     progress = {"done": 0, "total": 0, "failed": 0, "skipped": 0}
     progress_lock = threading.Lock()
+    media = {}
+    media_bases = {}
+
+    def media_progress(event):
+        with progress_lock:
+            key = event["id"]
+            if event["state"] == "starting":
+                previous = media.get(key, {})
+                media_bases[key] = (previous.get("elapsed_seconds", 0), previous.get("played_seconds", 0))
+            base_elapsed, base_played = media_bases.get(key, (0, 0))
+            media[key] = {**event, "elapsed_seconds": round(base_elapsed + event["elapsed_seconds"], 2),
+                          "played_seconds": round(base_played + event.get("played_seconds", 0), 2)}
+            progress["watch"] = {"elapsed_seconds": round(sum(v["elapsed_seconds"] for v in media.values()), 2),
+                                  "completed": sum(v["state"] == "completed" for v in media.values()),
+                                  "total": len(media), "active": [v for v in media.values() if v["state"] in {"starting", "running"}],
+                                  "last": media[key]}
+            emit("progress", progress=dict(progress))
+
+    if common["study_mode"] == "duration":
+        client.kwargs.update(replay_completed_media=common["replay_completed"], media_progress=media_progress)
+        client.study_video = MethodType(timed_study_video, client)
+        emit("log", message="按时长学习模式：视频按经过时间推进并周期上报，平台已通过也不会提前结束计时")
+    else:
+        emit("log", message="任务点模式：保留上游的已完成跳过与快速完成逻辑，不保证新增观看时长")
     course_points = []
     for course in courses:
         emit("log", message="读取课程章节：" + course["title"])
@@ -145,6 +171,9 @@ def run(spec):
         state = "partial"
     else:
         state = "partial" if progress["failed"] or progress["skipped"] else "succeeded"
+    if common["study_mode"] == "duration" and not any(v["state"] == "completed" and v["played_seconds"] > 0 for v in media.values()):
+        emit("log", level="warning", message="本次没有完成音视频计时，不能视为新增了观看时长；请检查课程是否有视频及重看配置")
+        state = "partial"
     emit("finished", state=state)
 
 

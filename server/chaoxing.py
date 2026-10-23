@@ -1,4 +1,9 @@
-"""Platform adapters. HTTPS only; sessions are passed in per account, never global."""
+"""Platform adapters. HTTPS only; sessions are passed in per account, never global.
+
+Sign-in flows reference Yink-Design/chaoxing-sign-cli (MIT), commit
+4084545e2f00e5297693776ac5c8fccc809c07ca. Python adaptation: 2026-10-23.
+Original copyright (c) 2021 miaochenxi; see licenses/chaoxing-sign-cli-MIT.txt.
+"""
 from __future__ import annotations
 
 import base64

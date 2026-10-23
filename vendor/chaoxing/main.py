@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Modified 2026-10-23 by auto-chaoxing-tool: opt-in completed-media replay
+# and duplicate card filtering. Upstream source: root THIRD_PARTY.md.
 import argparse
 import configparser
 import enum
@@ -447,7 +449,8 @@ class JobProcessor:
 def process_chapter(chaoxing: Chaoxing, course: dict[str, Any], point: dict[str, Any], speed: float) -> ChapterResult:
     """处理单个章节"""
     logger.info(f'当前章节: {point["title"]}')
-    if point["has_finished"]:
+    replay_media = bool(getattr(chaoxing, "kwargs", {}).get("replay_completed_media", False))
+    if point["has_finished"] and not replay_media:
         logger.info(f'章节：{point["title"]} 已完成所有任务点')
         return ChapterResult.SUCCESS
 
@@ -457,6 +460,19 @@ def process_chapter(chaoxing: Chaoxing, course: dict[str, Any], point: dict[str,
     # 获取当前章节的所有任务点
     job_info = None
     jobs, job_info = chaoxing.get_job_list(course, point)
+    if point["has_finished"] and replay_media:
+        # Only replay media in completed chapters; never resubmit completed work.
+        jobs = [job for job in jobs if job.get("type") == "video"]
+    seen_media = set()
+    unique_jobs = []
+    for job in jobs:
+        if job.get("type") == "video" and job.get("objectid"):
+            key = (job.get("jobid"), job["objectid"])
+            if key in seen_media:
+                continue
+            seen_media.add(key)
+        unique_jobs.append(job)
+    jobs = unique_jobs
 
     # 发现未开放章节, 根据配置处理
     if job_info.get("notOpen", False):
