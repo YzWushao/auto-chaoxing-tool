@@ -12,6 +12,7 @@ from unittest.mock import patch
 from waitress import serve
 
 from server.app import create_app
+from server.chaoxing import PlatformError
 from tests.conftest import FakeClient
 
 
@@ -26,6 +27,15 @@ class PreviewClient(FakeClient):
     @staticmethod
     def json(response):
         return response.json()
+
+    def activities(self, courses):
+        return [*super().activities(courses), {"id": "902", "title": "二维码签到（离线测试）", "kind": "qr",
+                                              "course": courses[0], "photo": False, "start_time": None}]
+
+    def sign(self, activity, supplied, name):
+        if 'EXPIRED_TEST_TOKEN' in str(supplied.get('qr', '')):
+            raise PlatformError('签到未成功：二维码已过期（离线模拟）')
+        return super().sign(activity, supplied, name)
 
 
 if __name__ == "__main__":

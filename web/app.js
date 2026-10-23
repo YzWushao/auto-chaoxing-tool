@@ -222,7 +222,7 @@ function timingNotice(duration) {
 }
 
 function creditsPanel() {
-  return `<section class="panel credits"><div class="panel-header"><h3>开源来源与致谢</h3><a class="text-button" href="/legal/sources" target="_blank" rel="noopener noreferrer">完整引用与修改记录 ↗</a></div><div class="panel-body"><p>本项目直接复用刷课引擎，并参考签到项目的接口流程进行 Python 适配。感谢两个项目的作者与贡献者。</p><div class="credit-grid"><article><h3><a href="https://github.com/Samueli924/chaoxing" target="_blank" rel="noopener noreferrer">Samueli924/chaoxing ↗</a></h3><p>刷课引擎及资源 · GPL-3.0</p><small>参考版本 45d2106 · 修改日期 2026-10-23</small></article><article><h3><a href="https://github.com/Yink-Design/chaoxing-sign-cli" target="_blank" rel="noopener noreferrer">Yink-Design/chaoxing-sign-cli ↗</a></h3><p>签到接口流程参考 · MIT</p><small>Copyright (c) 2021 miaochenxi · 参考版本 4084545</small></article></div><p class="setting-note">本整合项目按 GPLv3 授权，按原样提供，不附带担保。原项目的版权和许可声明予以保留。</p><div class="actions"><a class="text-button" href="/legal/license" target="_blank" rel="noopener noreferrer">GPLv3 许可证</a><a class="text-button" href="/legal/sign-mit" target="_blank" rel="noopener noreferrer">签到上游 MIT 许可证</a><a class="text-button" href="/legal/notice" target="_blank" rel="noopener noreferrer">版权与引用声明</a></div></div></section>`;
+  return `<section class="panel credits"><div class="panel-header"><h3>开源来源与致谢</h3><a class="text-button" href="/legal/sources" target="_blank" rel="noopener noreferrer">完整引用与修改记录 ↗</a></div><div class="panel-body"><p>本项目直接复用刷课引擎，并参考签到项目的接口流程进行 Python 适配。感谢两个项目的作者与贡献者。</p><div class="credit-grid"><article><h3><a href="https://github.com/Samueli924/chaoxing" target="_blank" rel="noopener noreferrer">Samueli924/chaoxing ↗</a></h3><p>刷课引擎及资源 · GPL-3.0</p><small>参考版本 45d2106 · 修改日期 2026-10-23</small></article><article><h3><a href="https://github.com/Yink-Design/chaoxing-sign-cli" target="_blank" rel="noopener noreferrer">Yink-Design/chaoxing-sign-cli ↗</a></h3><p>签到接口流程参考 · MIT</p><small>Copyright (c) 2021 miaochenxi · 参考版本 4084545</small></article></div><p class="setting-note">本地二维码图片识别使用 <a href="https://github.com/cozmo/jsQR" target="_blank" rel="noopener noreferrer">jsQR 1.4.0</a>，<a href="/legal/jsqr" target="_blank" rel="noopener noreferrer">Apache-2.0 许可证</a>；图片不上传第三方。</p><p class="setting-note">本整合项目按 GPLv3 授权，按原样提供，不附带担保。原项目的版权和许可声明予以保留。</p><div class="actions"><a class="text-button" href="/legal/license" target="_blank" rel="noopener noreferrer">GPLv3 许可证</a><a class="text-button" href="/legal/sign-mit" target="_blank" rel="noopener noreferrer">签到上游 MIT 许可证</a><a class="text-button" href="/legal/notice" target="_blank" rel="noopener noreferrer">版权与引用声明</a></div></div></section>`;
 }
 
 function configPage() {
@@ -245,11 +245,12 @@ function signPage() {
   const a=current(); if(!a) return accountsPage(); const list=state.activities[a.id];
   return heading('签到中心','使用 '+a.name+' 的统一登录会话，读取课程活动。',button('刷新活动','sign-refresh','primary','refresh'))+
     `<div class="notice purple">选择活动后填写所需参数并提交。二维码、位置、图片等按活动要求提供；NapCat 自动获取将在后续版本接入。</div>`+
-    (!list?`<section class="panel">${empty('查看当前签到活动','点击“刷新活动”，获取当前用户的有效签到列表。','','sign')}</section>`:!list.length?`<section class="panel">${empty('暂时没有进行中的签到','请确认当前用户，或在老师发布签到后刷新。','','sign')}</section>`:`<div class="sign-grid">${list.map(a=>`<article class="sign-card"><div class="card-top"><span class="course-icon">${icon('sign')}</span><span class="badge ${a.signed?'green':'purple'}">${a.signed?'已签到':esc(kindLabels[a.photo?'photo':a.kind]||'签到活动')}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.course.title)}</p><p>活动编号 ${esc(a.id)}</p>${button(a.signed?'已签到':'填写并签到','sign-open',a.signed?'secondary':'primary','',`data-id="${esc(a.id)}" ${a.signed?'disabled':''}`)}</article>`).join('')}</div>`);
+    (!list?`<section class="panel">${empty('查看当前签到活动','点击“刷新活动”，获取当前用户的有效签到列表。','','sign')}</section>`:!list.length?`<section class="panel">${empty('暂时没有进行中的签到','请确认当前用户，或在老师发布签到后刷新。','','sign')}</section>`:`<div class="sign-grid">${list.map(a=>`<article class="sign-card"><div class="card-top"><span class="course-icon">${icon('sign')}</span><span class="badge ${a.signed?'green':'purple'}">${a.signed?'已签到':esc(kindLabels[a.photo?'photo':a.kind]||'签到活动')}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.course.title)}</p><p>活动编号 ${esc(a.id)}</p>${button(a.signed?'已签到':a.kind==='qr'&&!a.photo?'上传二维码 / 填写':'填写并签到','sign-open',a.signed?'secondary':'primary','',`data-id="${esc(a.id)}" ${a.signed?'disabled':''}`)}</article>`).join('')}</div>`);
 }
 
 function openSign(id) {
   const a=state.activities[state.active]?.find(x=>x.id===id); if(!a) return;
+  cancelSignQR();
   const kind=a.photo?'photo':a.kind;
   $('#modal-content').innerHTML=`<form id="sign-form" data-activity="${esc(id)}" data-account="${state.active}"><div class="modal-head"><h2>${esc(a.title)}</h2><button type="button" class="icon-button" data-action="modal-close" aria-label="关闭">×</button></div><div class="modal-body"><p class="muted">${esc(a.course.title)} · ${esc(current().name)}</p><div class="field"><label for="sign-kind">签到方式</label><select id="sign-kind" name="kind">${Object.entries(kindLabels).map(([k,l])=>`<option value="${k}" ${kind===k?'selected':''}>${l}</option>`).join('')}</select></div><div class="gap"></div><div id="sign-fields">${signFields(kind)}</div><p class="inline-error" id="sign-error"></p></div><div class="modal-actions"><button type="button" class="button secondary" data-action="modal-close">取消</button><button type="submit" class="button primary">确认提交签到</button></div></form>`;
   $('#modal').showModal();
@@ -257,11 +258,31 @@ function openSign(id) {
 
 function signFields(kind) {
   const field=(key,label,placeholder='',type='text')=>`<div class="field"><label for="sign-${key}">${label}</label><input id="sign-${key}" name="${key}" type="${type}" placeholder="${placeholder}" required ${type==='number'?'step="any"':''}></div>`;
-  if(kind==='qr') return field('qr','当前签到二维码链接 / enc','粘贴学习通签到二维码的解析结果');
+  if(kind==='qr') return `<div class="qr-upload"><label for="sign-qr-file">上传本地二维码图片</label><input id="sign-qr-file" type="file" accept="image/png,image/jpeg,image/webp"><p class="setting-note">PNG / JPEG / WebP，最大 8 MB。仅在浏览器本地解码，自动填入下方参数；不判断活动是否匹配或二维码是否过期。</p><div class="qr-file-result" aria-live="polite"><img id="sign-qr-preview" class="hidden" alt="已选择的二维码图片"><p id="sign-qr-message">也可以直接粘贴二维码链接或 enc。</p></div></div>`+field('qr','当前签到二维码链接 / enc','上传图片后自动填入，也可手动粘贴')+'<p class="setting-note">识别成功不代表二维码仍有效。请点击“确认提交签到”，以后台和平台返回结果为准。</p>';
   if(kind==='location') return `<div class="field-grid">${field('longitude','经度','如 116.40','number')}${field('latitude','纬度','如 39.90','number')}<div class="field full">${field('address','位置说明','填写当前位置')}</div></div>`;
   if(kind==='photo') return field('object_id','超星云盘图片 objectId','填写已经上传的图片对象 ID')+'<p class="setting-note">初期版本支持已有图片对象 ID，网页直接上传图片列入后续优化。</p>';
   if(kind==='gesture'||kind==='code') return field('code',kind==='gesture'?'手势数字序列':'签到码','输入本次活动提供的数字');
   return '<p class="setting-note">将使用当前用户会话提交此普通签到活动。</p>';
+}
+
+function cancelSignQR() { state.signQRAbort?.abort(); state.signQRAbort=null; }
+
+async function loadSignQR(file) {
+  cancelSignQR(); if(!file) return;
+  const controller=new AbortController(); state.signQRAbort=controller;
+  const form=$('#sign-form'), input=$('#sign-qr'), message=$('#sign-qr-message'), preview=$('#sign-qr-preview');
+  const valid=()=>!controller.signal.aborted && $('#modal').open && $('#sign-form')===form && $('#sign-qr')===input;
+  input.value=''; $('#sign-error').textContent=''; preview.classList.add('hidden'); preview.removeAttribute('src');
+  message.className=''; message.textContent='正在本地识别二维码…';
+  try {
+    const decoded=await SignQR.decodeImage(file,{signal:controller.signal});
+    if(!valid()) return;
+    input.value=decoded.value;
+    preview.src=decoded.preview; preview.classList.remove('hidden');
+    message.className='success'; message.textContent='已识别并自动填入。'+(decoded.activityId?`图片中的活动编号：${decoded.activityId}。`:'')+'提交后以平台返回结果为准。';
+  } catch(error) {
+    if(valid() && error.name!=='AbortError') { message.className='error'; message.textContent=error.message; }
+  }
 }
 
 function readApi(form) { return Object.fromEntries($$('[name^="api."]',form).map(el=>[el.name.slice(4),el.value])); }
@@ -337,7 +358,8 @@ document.addEventListener('change',event=>{
   if(event.target.id==='study-mode') $('#timing-notice').textContent=timingNotice(event.target.value==='duration');
   if(event.target.dataset.course) { const set=state.selection[state.active]; if(event.target.checked) set.add(event.target.dataset.course); else set.delete(event.target.dataset.course); $('#selection-count').textContent=set.size; }
   if(event.target.id==='inherit-api') $('#inherit-notice').classList.toggle('hidden',!event.target.checked);
-  if(event.target.id==='sign-kind') $('#sign-fields').innerHTML=signFields(event.target.value);
+  if(event.target.id==='sign-kind') { cancelSignQR(); $('#sign-fields').innerHTML=signFields(event.target.value); }
+  if(event.target.id==='sign-qr-file') loadSignQR(event.target.files[0]);
 });
 document.addEventListener('input',event=>{ if(event.target.id==='course-search') $('#course-list').innerHTML=coursesHTML(event.target.value); });
 
@@ -383,6 +405,7 @@ $('#refresh-qr').onclick=()=>busy($('#refresh-qr'),startQR,'正在刷新…');
 $('#open-admin-login').onclick=showLogin;
 $('#admin-dialog').addEventListener('cancel',event=>{ event.preventDefault(); closeAdminLogin(); });
 $('#account-dialog').addEventListener('cancel',event=>{ event.preventDefault(); closeAccountLogin(); });
+$('#modal').addEventListener('close',cancelSignQR);
 $('#add-account').onclick=()=>showAccountLogin();
 $('#account-switch').onchange=event=>{ state.active=event.target.value; state.logJob=null; state.logAfter=0; syncAccountSwitch(); render(); };
 $('#logout').onclick=()=>busy($('#logout'),async()=>{ closeAccountLogin(); await api('/auth/logout','POST',{}); resetConsole(); const data=await api('/session'); state.csrf=data.csrf; showLogin(); });

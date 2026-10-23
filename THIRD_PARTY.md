@@ -23,3 +23,11 @@
 - 参考内容：课程签到活动读取、签到类型与参数流程。新项目的 Python 签到适配器在 `server/chaoxing.py` 中实现，统一使用每账户的 HTTPS 会话，并检查活动归属、时效与平台成功响应。
 
 新项目没有依赖上述仓库的 Git 历史，也没有复制之前独立 GUI / EXE 草稿。上游作者与已有文件中的版权、许可证及其他来源声明保留原样。
+
+## cozmo/jsQR（2026-10-24 集成）
+
+- 来源：https://github.com/cozmo/jsQR；固定 npm 包 `jsqr@1.4.0`。
+- 许可证：Apache-2.0，完整原文保留于 `licenses/jsqr-Apache-2.0.txt`。
+- 原始发行文件 `dist/jsQR.js` 原样复制为 `web/vendor/jsqr-1.4.0.js`；SHA-256：`bc40c8a15196236b2314db0856f72ca0b49980cd5413b8c852a7349f5fee0859`。
+- npm 包 integrity：`sha512-dxLob7q65Xg2DvstYkRpkYtmKm2sPJ9oFhrhmudT1dZvNFFTlroai3AWSpLey/w5vMcLBXRgOJsbXpdN9HzU/A==`。
+- 用途：`web/sign-qr-worker.js` 在浏览器本地解码图片；`web/sign-qr.js` 提取二维码内容、enc 和活动编号。不额外拦截活动编号不一致或疑似过期的二维码，提交后仍由后台 / 平台返回结果。

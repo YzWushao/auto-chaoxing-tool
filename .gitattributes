@@ -1,0 +1,3 @@
+# Preserve the exact bytes of bundled upstream assets and their license.
+web/vendor/jsqr-1.4.0.js -text
+licenses/jsqr-Apache-2.0.txt -text

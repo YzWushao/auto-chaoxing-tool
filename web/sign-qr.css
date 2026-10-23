@@ -1,0 +1,13 @@
+#modal { max-height:calc(100dvh - 32px); overflow:auto; }
+#modal .modal-head { position:sticky; top:0; background:white; z-index:2; }
+#modal .modal-actions { position:sticky; bottom:0; background:white; }
+.qr-upload { padding:16px; border:1px dashed #cfc5ef; border-radius:10px; background:#faf8ff; margin-bottom:20px; }
+.qr-upload label { color:#65528e; }
+.qr-upload input[type=file] { padding:9px; background:white; font-size:12px; }
+.qr-upload .setting-note { margin:8px 0 0; }
+.qr-file-result { display:flex; align-items:center; gap:14px; margin-top:12px; }
+.qr-file-result img { width:82px; height:82px; object-fit:contain; background:white; border:1px solid var(--line); border-radius:6px; }
+.qr-file-result p { flex:1; margin:0; font-size:12px; line-height:1.8; overflow-wrap:anywhere; }
+.qr-file-result .error { color:var(--red); }
+.qr-file-result .success { color:var(--green); }
+.qr-file-result small { display:block; color:var(--muted); }

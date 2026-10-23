@@ -21,4 +21,11 @@
 - 许可：MIT。完整版权和许可声明保留于 `licenses/chaoxing-sign-cli-MIT.txt`。
 - 适配日期：2026-10-23。新增多账户会话隔离、全部有效活动筛选、活动归属与时效验证、结果检查。
 
+## 组件：cozmo/jsQR
+
+- 项目：[cozmo/jsQR](https://github.com/cozmo/jsQR)，npm 包 `jsqr@1.4.0`。
+- 用途：浏览器 Web Worker 内的本地二维码图片识别；不向第三方发送图片。
+- 许可：Apache License 2.0，原始发行文件未修改，完整许可证见 `licenses/jsqr-Apache-2.0.txt`。
+- 集成日期：2026-10-24。
+
 更详细的文件级来源和修改清单见 `THIRD_PARTY.md`。软件按原样提供，不附带担保，具体条款以随附的许可证为准。网页“设置 → 开源来源与致谢”提供上述项目和许可正文的入口。

@@ -168,7 +168,8 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.get("/legal/<document>")
     def legal(document):
         documents = {"license": ROOT / "LICENSE", "notice": ROOT / "NOTICE.md",
-                     "sources": ROOT / "THIRD_PARTY.md", "sign-mit": ROOT / "licenses" / "chaoxing-sign-cli-MIT.txt"}
+                     "sources": ROOT / "THIRD_PARTY.md", "sign-mit": ROOT / "licenses" / "chaoxing-sign-cli-MIT.txt",
+                     "jsqr": ROOT / "licenses" / "jsqr-Apache-2.0.txt"}
         path = documents.get(document)
         if path is None:
             raise KeyError(document)
