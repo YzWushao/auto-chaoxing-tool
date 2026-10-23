@@ -243,6 +243,16 @@ class QRLogin:
         self.entries = {}
         self.lock = threading.RLock()
 
+    def cancel(self, browser_id, token):
+        with self.lock:
+            entry = self.entries.get(token)
+            if entry and entry["browser"] == browser_id:
+                self.entries.pop(token, None)
+
+    def cancel_browser(self, browser_id):
+        with self.lock:
+            self.entries = {k: v for k, v in self.entries.items() if v["browser"] != browser_id}
+
     def create(self, browser_id):
         with self.lock:
             self.entries = {k: v for k, v in self.entries.items() if v["expires"] > time.time() and v["browser"] != browser_id}
@@ -283,9 +293,14 @@ class QRLogin:
         client = entry["client"]
         try:
             response = client.json(client.request("POST", "https://passport2.chaoxing.com/getauthstatus", data={"uuid": entry["uuid"], "enc": entry["enc"]}))
+            with self.lock:
+                if self.entries.get(token) is not entry:
+                    return {"state": "cancelled"}, None
             if response.get("status") is True:
                 profile = client.profile()
                 with self.lock:
+                    if self.entries.get(token) is not entry:
+                        return {"state": "cancelled"}, None
                     self.entries.pop(token, None)
                 return {"state": "confirmed", "profile": profile}, client
             state = {"2": "expired", "4": "scanned", "6": "cancelled"}.get(str(response.get("type")), "waiting")

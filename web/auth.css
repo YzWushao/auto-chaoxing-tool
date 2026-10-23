@@ -1,0 +1,23 @@
+.signed-out { min-height:100dvh; display:grid; place-items:center; padding:32px 20px; background:radial-gradient(ellipse at 50% 10%,#eee9ff,transparent 65%); }
+.welcome-panel { max-width:650px; text-align:center; }
+.welcome-panel .brand-mark { width:58px; height:58px; font-size:37px; margin-bottom:24px; }
+.welcome-panel .eyebrow { margin-bottom:20px; }
+.welcome-panel h1 { font-size:34px; line-height:1.5; }
+.welcome-panel .button { margin:10px 0 16px; }
+.auth-dialog { width:min(460px,calc(100vw - 32px)); max-width:460px; max-height:calc(100dvh - 32px); overflow:auto; }
+.auth-dialog .modal-head { position:sticky; top:0; background:white; z-index:2; padding:22px 26px; }
+.auth-dialog .modal-head h2 { margin-top:8px; }
+.auth-dialog .modal-head .icon-button { flex-shrink:0; font-size:22px; }
+.auth-dialog .modal-body { padding:20px 26px; }
+.auth-dialog .modal-body>.muted { font-size:12px; }
+.auth-dialog .field+.field { margin-top:18px; }
+.auth-dialog .segmented { margin:20px 0; }
+.auth-dialog .login-submit { margin-top:22px; justify-content:center; }
+.auth-dialog .password-wrap button { top:5px; }
+.auth-dialog .login-note { margin:18px 0 0; font-size:10px; }
+.auth-dialog .modal-actions { position:sticky; bottom:0; background:white; padding:16px 26px; }
+.admin-security { margin-bottom:23px; }
+.admin-security .panel-body { max-width:800px; }
+.admin-security .field-grid { margin-bottom:10px; }
+.empty-accounts { margin:0; }
+@media(max-width:640px) { .welcome-panel h1 { font-size:26px; } .auth-dialog .modal-body,.auth-dialog .modal-head { padding:18px 20px; } .auth-dialog .modal-actions { padding:14px 20px; } }

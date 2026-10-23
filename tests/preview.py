@@ -5,6 +5,8 @@ Test credentials are labels, not real platform credentials.
 """
 import tempfile
 import subprocess
+import base64
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from waitress import serve
@@ -13,8 +15,21 @@ from server.app import create_app
 from tests.conftest import FakeClient
 
 
+class PreviewClient(FakeClient):
+    """Fake QR image/status for local UI checks; never contacts the platform."""
+
+    def request(self, method, url, **kwargs):
+        return SimpleNamespace(text='<input id="uuid" value="offline"><input id="enc" value="offline">',
+                               content=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+cGOcAAAAASUVORK5CYII='),
+                               headers={'Content-Type': 'image/png'}, json=lambda: {'status': False, 'type': '4'})
+
+    @staticmethod
+    def json(response):
+        return response.json()
+
+
 if __name__ == "__main__":
-    app = create_app({"DATA_DIR": tempfile.mkdtemp(prefix="auto-chaoxing-ui-test-")}, FakeClient)
+    app = create_app({"DATA_DIR": tempfile.mkdtemp(prefix="auto-chaoxing-ui-test-")}, PreviewClient)
 
     @app.after_request
     def mark_preview(response):

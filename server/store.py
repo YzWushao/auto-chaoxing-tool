@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
 import os
 import secrets
 import sqlite3
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from cryptography.fernet import Fernet
+from werkzeug.security import check_password_hash, generate_password_hash
 
 
 def now():
@@ -64,7 +68,34 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS logs_job ON logs(job_id, id);
                 CREATE INDEX IF NOT EXISTS events_owner ON events(owner, id);
+                CREATE TABLE IF NOT EXISTS administrators (
+                    id INTEGER PRIMARY KEY CHECK(id=1), username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL, owner TEXT NOT NULL,
+                    default_password INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS admin_workspaces (
+                    admin_id INTEGER NOT NULL, owner TEXT NOT NULL UNIQUE,
+                    PRIMARY KEY(admin_id, owner)
+                );
+                CREATE TABLE IF NOT EXISTS admin_sessions (
+                    token_hash TEXT PRIMARY KEY, admin_id INTEGER NOT NULL,
+                    created_at REAL NOT NULL, expires_at REAL NOT NULL
+                );
             """)
+            # Claim legacy workspaces without rewriting accounts, IDs, or secrets.
+            # Only the local administrator can access them after this upgrade.
+            db.execute("BEGIN IMMEDIATE")
+            admin = db.execute("SELECT id FROM administrators WHERE id=1").fetchone()
+            if admin is None:
+                owners = [r[0] for r in db.execute("SELECT owner FROM accounts GROUP BY owner ORDER BY COUNT(*) DESC, MIN(created_at)")]
+                for table in ("settings", "jobs", "events", "signs"):
+                    for row in db.execute(f"SELECT DISTINCT owner FROM {table}"):
+                        if row[0] not in owners:
+                            owners.append(row[0])
+                primary = owners[0] if owners else "workspace:" + uuid.uuid4().hex
+                db.execute("INSERT INTO administrators VALUES (1,?,?,?,?,?)",
+                           ("admin", generate_password_hash("admin", method="scrypt"), primary, 1, now()))
+                db.executemany("INSERT INTO admin_workspaces VALUES (1,?)", [(o,) for o in set([primary, *owners])])
             # A server restart never silently restarts an operation against a real account.
             db.execute("UPDATE jobs SET state='interrupted', finished_at=?, prompt=NULL WHERE state IN ('queued','running','waiting','stopping')", (now(),))
 
@@ -84,6 +115,66 @@ class Store:
 
     def unseal(self, value):
         return json.loads(self.cipher.decrypt(value.encode()))
+
+    def _public_admin(self, row):
+        return {"id": row["id"], "username": row["username"], "owner": row["owner"],
+                "default_password": bool(row["default_password"])}
+
+    def managed_owners(self, admin_id):
+        with self.connect() as db:
+            return [r[0] for r in db.execute("SELECT owner FROM admin_workspaces WHERE admin_id=?", (admin_id,))]
+
+    def authenticate_admin(self, username, password, lifetime=30 * 86400):
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM administrators WHERE id=1").fetchone()
+        valid_password = check_password_hash(row["password_hash"], password)
+        if not hmac.compare_digest(row["username"].encode(), username.encode()) or not valid_password:
+            return None
+        token = secrets.token_urlsafe(32)
+        stamp = time.time()
+        with self.lock, self.connect() as db:
+            # Do not issue a session against credentials changed during verification.
+            current = db.execute("SELECT * FROM administrators WHERE id=1").fetchone()
+            if current["password_hash"] != row["password_hash"] or current["username"] != username:
+                return None
+            db.execute("DELETE FROM admin_sessions WHERE expires_at<=?", (stamp,))
+            db.execute("INSERT INTO admin_sessions VALUES (?,?,?,?)",
+                       (hashlib.sha256(token.encode()).hexdigest(), row["id"], stamp, stamp + lifetime))
+        return token, self._public_admin(row)
+
+    def admin_session(self, token):
+        if not isinstance(token, str) or not token or len(token) > 200:
+            return None
+        with self.connect() as db:
+            row = db.execute("SELECT a.* FROM administrators a JOIN admin_sessions s ON s.admin_id=a.id "
+                             "WHERE s.token_hash=? AND s.expires_at>?",
+                             (hashlib.sha256(token.encode()).hexdigest(), time.time())).fetchone()
+        return self._public_admin(row) if row else None
+
+    def revoke_admin_session(self, token):
+        if isinstance(token, str):
+            with self.connect() as db:
+                db.execute("DELETE FROM admin_sessions WHERE token_hash=?", (hashlib.sha256(token.encode()).hexdigest(),))
+
+    def update_admin(self, admin_id, username, current_password, new_password=""):
+        if not isinstance(username, str) or not 1 <= len(username.strip()) <= 64 or any(c.isspace() or ord(c) < 32 for c in username):
+            raise ValueError("管理员名称需为 1–64 个非空白字符")
+        if not isinstance(current_password, str) or not 1 <= len(current_password) <= 200:
+            raise ValueError("请输入当前管理员密码")
+        if not isinstance(new_password, str) or (new_password and (not 8 <= len(new_password) <= 200 or not new_password.strip())):
+            raise ValueError("新管理员密码需为 8–200 个字符")
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM administrators WHERE id=?", (admin_id,)).fetchone()
+        if not row or not check_password_hash(row["password_hash"], current_password):
+            raise ValueError("当前管理员密码不正确")
+        password_hash = generate_password_hash(new_password, method="scrypt") if new_password else row["password_hash"]
+        with self.lock, self.connect() as db:
+            current = db.execute("SELECT * FROM administrators WHERE id=?", (admin_id,)).fetchone()
+            if current["password_hash"] != row["password_hash"] or current["username"] != row["username"]:
+                raise ValueError("管理员信息已更新，请重新登录后再试")
+            db.execute("UPDATE administrators SET username=?,password_hash=?,default_password=?,updated_at=? WHERE id=?",
+                       (username.strip(), password_hash, 0 if new_password else row["default_password"], now(), admin_id))
+            db.execute("DELETE FROM admin_sessions WHERE admin_id=?", (admin_id,))
 
     def save_account(self, owner, profile, cookies, defaults):
         with self.lock, self.connect() as db:

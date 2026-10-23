@@ -86,3 +86,18 @@ def test_qr_binding_expiry_and_confirmation():
     token = qr.create("browser-a")["id"]
     qr.entries[token]["expires"] = time.time() - 1
     assert qr.poll("browser-a", token)[0]["state"] == "expired"
+
+
+def test_cancelling_qr_during_confirmation_never_returns_credentials():
+    class Client:
+        def request(self, method, url, **kwargs):
+            return response('<input id="uuid" value="u"><input id="enc" value="e">', {"status": True})
+        json = staticmethod(ChaoxingClient.json)
+        def profile(self):
+            qr.cancel_browser('browser-a')
+            return {'uid': '1', 'name': '测试'}
+    qr = QRLogin(Client)
+    token = qr.create('browser-a')['id']
+    state, client = qr.poll('browser-a', token)
+    assert state == {'state': 'cancelled'}
+    assert client is None

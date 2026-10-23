@@ -14,12 +14,12 @@ const state = {csrf:'',authenticated:false,accounts:[],jobs:[],events:[],setting
 const current = () => state.accounts.find(a => a.id === state.active);
 const date = stamp => stamp ? new Date(stamp).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}) : '—';
 
-async function api(path, method='GET', data) {
-  const response = await fetch('/api' + path, {method,credentials:'same-origin',headers: {'Content-Type':'application/json','X-CSRF-Token':state.csrf},...(data !== undefined ? {body:JSON.stringify(data)} : {})});
+async function api(path, method='GET', data, options={}) {
+  const response = await fetch('/api' + path, {method,credentials:'same-origin',headers: {'Content-Type':'application/json','X-CSRF-Token':state.csrf},...(data !== undefined ? {body:JSON.stringify(data)} : {}),...options});
   let payload;
   try { payload = await response.json(); } catch { throw new Error('服务器返回了异常响应，请检查服务是否运行'); }
   if (!response.ok) {
-    if (response.status === 401) { state.authenticated = false; showLogin(); }
+    if (response.status === 401 && path !== '/admin/login') { state.authenticated = false; showLogin(); }
     throw new Error(payload.error || `请求失败 (${response.status})`);
   }
   return payload;
@@ -33,7 +33,7 @@ function toast(message, error=false) {
 async function busy(button, fn, label='处理中…') {
   if (!button || button.disabled) return;
   const old = button.innerHTML; button.disabled = true; button.textContent = label;
-  try { await fn(); } catch (error) { toast(error.message, true); }
+  try { await fn(); } catch (error) { if(error.name!=='AbortError') toast(error.message, true); }
   finally { button.disabled = false; button.innerHTML = old; }
 }
 
@@ -45,45 +45,92 @@ function button(label, action, cls='secondary', symbol='', extra='') { return `<
 
 function showLogin() {
   $('#loading').classList.add('hidden'); $('#app-screen').classList.add('hidden'); $('#login-screen').classList.remove('hidden');
-  $('#cancel-login').classList.toggle('hidden', !state.authenticated);
-  $('#login-title').textContent = state.authenticated ? '添加或重新登录用户' : '登录你的超星账号';
-  $('#login-error').textContent = '';
+  closeAccountLogin();
+  if($('#modal').open) $('#modal').close();
+  $('#admin-login-error').textContent = '';
+  if(!$('#admin-dialog').open) $('#admin-dialog').showModal();
 }
 
-function stopQR() { clearTimeout(state.qrTimer); state.qrTimer=null; state.qrId=null; }
+function showAccountLogin(accountId='') {
+  if(!state.authenticated) return showLogin();
+  closeAccountLogin(); state.loginAccount=accountId;
+  const account=state.accounts.find(a=>a.id===accountId);
+  $('#login-title').textContent=account?'重新登录超星账户':'添加超星账户';
+  $('#account-login-description').textContent=account?`请使用 ${account.name} 对应的原超星账号登录，已有配置不会改变。`:'连接超星账户，独立保存会话、课程目标和学习配置。';
+  $('#login-error').textContent = '';
+  $('#password-tab').click();
+  $('#account-dialog').showModal();
+}
+
+function closeAccountLogin() {
+  state.loginGeneration=(state.loginGeneration||0)+1;
+  state.loginAbort?.abort(); state.loginAbort=null;
+  stopQR();
+  $('#password-form').reset(); $('#password').type='password'; $('#toggle-password').textContent='显示';
+  $('#qr-image').textContent='正在获取二维码…';
+  if($('#account-dialog').open) $('#account-dialog').close();
+}
+
+function stopQR() {
+  clearTimeout(state.qrTimer); state.qrTimer=null;
+  const id=state.qrId; state.qrId=null; state.qrGeneration=(state.qrGeneration||0)+1;
+  if(id && state.authenticated) api(`/auth/qr/${encodeURIComponent(id)}/cancel`,'POST',{}).catch(()=>{});
+}
 
 async function startQR() {
   stopQR(); $('#qr-image').textContent = '正在获取二维码…'; $('#qr-status').textContent = '请使用学习通 App 扫码并确认登录';
+  const generation=state.loginGeneration, qrGeneration=state.qrGeneration, accountId=state.loginAccount;
+  const valid=()=>generation===state.loginGeneration && qrGeneration===state.qrGeneration && $('#account-dialog').open && state.authenticated;
   try {
-    const qr = await api('/auth/qr','POST',{}); state.qrId = qr.id;
+    const qr = await api('/auth/qr','POST',{});
+    if(!valid()) { api(`/auth/qr/${encodeURIComponent(qr.id)}/cancel`,'POST',{}).catch(()=>{}); return; }
+    state.qrId = qr.id;
     const image = document.createElement('img'); image.src = qr.image; image.alt = '超星登录二维码';
     $('#qr-image').replaceChildren(image);
     const poll = async () => {
-      if (state.qrId !== qr.id) return;
+      if (!valid() || state.qrId !== qr.id) return;
       try {
-        const result = await api(`/auth/qr/${encodeURIComponent(qr.id)}/poll`, 'POST', {});
-        if (state.qrId !== qr.id) return;
-        if (result.state === 'confirmed') { await afterLogin(result); return; }
+        const result = await api(`/auth/qr/${encodeURIComponent(qr.id)}/poll`, 'POST', {account_id:accountId || undefined});
+        if (!valid() || state.qrId !== qr.id) return;
+        if (result.state === 'confirmed') { await afterLogin(result,generation); return; }
         const text = {waiting:'请使用学习通 App 扫码并确认登录',scanned:'已扫码，请在学习通 App 中确认',expired:'二维码已过期，请点击刷新',cancelled:'登录已取消，可以刷新二维码重试'};
         $('#qr-status').textContent = text[result.state] || '等待平台确认…';
         if (!['expired','cancelled'].includes(result.state)) state.qrTimer = setTimeout(poll,2500);
-      } catch (error) { $('#login-error').textContent=error.message; }
+      } catch (error) { if(valid()) $('#login-error').textContent=error.message; }
     };
     state.qrTimer = setTimeout(poll,2500);
-  } catch(error) { $('#qr-image').textContent='二维码暂不可用'; $('#login-error').textContent=error.message; }
+  } catch(error) { if(valid()) { $('#qr-image').textContent='二维码暂不可用'; $('#login-error').textContent=error.message; } }
 }
 
-async function afterLogin(result) {
-  stopQR(); state.csrf = result.csrf; state.authenticated = true; state.active = result.account.id;
-  $('#password').value = ''; await bootstrap(); location.hash = '#overview'; render();
+async function afterLogin(result,generation) {
+  if(generation!==state.loginGeneration || !$('#account-dialog').open || !state.authenticated) return;
+  state.csrf = result.csrf; state.active = result.account.id;
+  closeAccountLogin(); await bootstrap(); toast('超星账户已连接，原有配置已保留');
 }
 
 async function bootstrap() {
-  const data = await api('/bootstrap'); Object.assign(state,data);
+  const data = await api('/bootstrap'); if(!state.authenticated) return; Object.assign(state,data);
   if (!state.accounts.some(a => a.id === state.active)) state.active = state.accounts[0]?.id || '';
   for(const a of state.accounts) if(!state.selection[a.id]) state.selection[a.id] = new Set(a.config.course_keys);
   $('#login-screen').classList.add('hidden'); $('#loading').classList.add('hidden'); $('#app-screen').classList.remove('hidden');
   syncAccountSwitch(); render();
+}
+
+function resetConsole() {
+  state.authenticated=false; state.admin=null; closeAccountLogin();
+  state.accounts=[]; state.jobs=[]; state.events=[]; state.active=''; state.selection={}; state.courses={}; state.activities={}; state.logJob=null; state.logAfter=0;
+  $('#page-content').replaceChildren();
+}
+
+function closeAdminLogin() {
+  state.adminGeneration=(state.adminGeneration||0)+1;
+  state.adminAbort?.abort(); state.adminAbort=null;
+  $('#admin-password').value='';
+  if($('#admin-dialog').open) $('#admin-dialog').close();
+}
+
+function adminPanel() {
+  return `<form id="admin-settings-form" class="panel admin-security"><div class="panel-header"><div><h3>管理员账号与密码</h3><p class="subheading">仅管理控制台入口，不修改任何超星账户的密码</p></div><span class="badge purple">管理员</span></div><div class="panel-body"><div class="field-grid"><div class="field"><label for="settings-admin-name">管理员名称（登录账号）</label><input id="settings-admin-name" name="username" value="${esc(state.admin.username)}" autocomplete="username" required maxlength="64"></div><div class="field"><label for="settings-admin-current">当前管理员密码</label><input id="settings-admin-current" name="current_password" type="password" autocomplete="current-password" required maxlength="200"></div><div class="field"><label for="settings-admin-new">新管理员密码</label><input id="settings-admin-new" name="new_password" type="password" autocomplete="new-password" minlength="8" maxlength="200" placeholder="留空则只修改管理员名称"><small>新密码至少 8 位，建议使用更长的独立密码。</small></div><div class="field"><label for="settings-admin-confirm">确认新密码</label><input id="settings-admin-confirm" name="confirm_password" type="password" autocomplete="new-password" maxlength="200"></div></div><p class="setting-note">修改需要验证当前密码，保存后所有管理员会话失效，需重新登录；超星登录凭据和后台任务不受影响。</p><p id="admin-settings-error" class="inline-error" role="alert"></p></div><div class="panel-actions"><button type="submit" class="button primary">保存并重新登录</button></div></form>`;
 }
 
 function syncAccountSwitch() {
@@ -99,7 +146,7 @@ function render() {
   $('#breadcrumb-title').textContent=titles[state.page];
   $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === (state.page==='study-config'?'study':state.page)));
   const renderers = {overview:overviewPage,study:studyPage,'study-config':configPage,sign:signPage,accounts:accountsPage,settings:settingsPage};
-  $('#page-content').innerHTML = renderers[state.page]();
+  $('#page-content').innerHTML = (state.admin?.default_password?'<div class="notice">管理员仍使用默认密码，请到 <a href="#settings">设置 → 管理员账号与密码</a> 修改后再开放远程访问。</div>':'')+renderers[state.page]();
   if (state.page==='study' && state.logJob) { state.logAfter=0; loadLogs(); }
 }
 
@@ -159,7 +206,7 @@ function apiFields(config) {
     const value=config[key] ?? state.schema.api[key] ?? '';
     let input;
     if(['true','false'].includes(state.schema.api[key])) input=`<select name="api.${key}" id="api-${key}"><option value="false" ${value==='false'?'selected':''}>关闭</option><option value="true" ${value==='true'?'selected':''}>开启</option></select>`;
-    else input=`<input id="api-${key}" name="api.${key}" type="${secrets.has(key)?'password':'text'}" value="${esc(value)}" ${key==='provider'?'list="provider-options"':''} placeholder="${key==='provider'?'留空表示不启用题库':secrets.has(key)?'未设置；填写后保存':key==='endpoint'?'https://example.com/v1':'按需填写'}" autocomplete="off">`;
+    else input=`<input id="api-${key}" name="api.${key}" type="${secrets.has(key)?'password':'text'}" value="${esc(value)}" ${key==='provider'?'list="provider-options"':''} placeholder="${key==='provider'?'留空表示不启用题库':secrets.has(key)?'未设置；填写后保存':key==='endpoint'?'https://example.com/v1':'按需填写'}" autocomplete="${secrets.has(key)?'new-password':'off'}">`;
     return `<div class="field"><label for="api-${key}">${esc(labels[key]||key)}</label>${input}${key==='provider'?'<small>支持英文逗号分隔多个提供方，按顺序回退。</small>':key==='key'||key==='tokens'?'<small>已保存的密钥显示为圆点；清空后保存可移除。</small>':''}</div>`;
   };
   return `<datalist id="provider-options">${state.schema.providers.map(p=>`<option value="${p}">`).join('')}</datalist><div class="field-grid">${basics.map(field).join('')}</div><details><summary>高级题库参数 · 硅基流动 / LIKE / GO / 手动模式</summary><div class="field-grid">${Object.keys(state.schema.api).filter(k=>!basics.includes(k)).map(field).join('')}</div></details>`;
@@ -185,13 +232,13 @@ function configPage() {
 }
 
 function settingsPage() {
-  return heading('设置','管理工作空间的全局 API 配置与服务信息。')+
+  return heading('设置','管理管理员凭据、全局 API 配置与服务信息。')+adminPanel()+
     `<div class="settings-grid"><form id="global-api-form" class="panel"><div class="panel-header"><div><h3>全局 API 配置</h3><p class="subheading">所有开启“使用全局 API 配置”的用户将自动继承</p></div><span class="badge purple">默认配置</span></div><div class="panel-body">${apiFields(state.settings.api)}</div><div class="panel-actions"><small>密钥加密保存，仅返回脱敏信息</small><button type="submit" class="button primary">保存全局配置</button></div></form><aside><section class="panel"><div class="panel-header"><h3>扩展计划</h3><span class="badge">TODO</span></div><div class="panel-body">${state.integrations.map(i=>`<div class="integration"><span class="integration-icon">${icon('link')}</span><div><h3>${esc(i.name)} <span class="badge">待接入</span></h3><p>${esc(i.description)}</p></div></div>`).join('')}</div></section><section class="panel"><div class="panel-header"><h3>服务信息</h3></div><div class="panel-body"><div class="setting-row"><span>当前版本</span><b>${esc(state.system.version)}</b></div><div class="setting-row"><span>会话隔离</span><b>按用户隔离</b></div><div class="setting-row"><span>凭据存储</span><b>本地加密</b></div><div class="setting-row"><span>OCR 扩展</span><b>${state.system.ocr?'已安装':'未安装（可选）'}</b></div><p class="setting-note">第三方推送与 NapCat 当前仅列入计划。登录失效、任务结果等事件已经在“最近动态”中记录。</p></div></section></aside></div>${creditsPanel()}`;
 }
 
 function accountsPage() {
   return heading('用户管理','每个用户独立保存会话、学习目标与 API 配置。',button('添加用户','add-account','primary','plus'))+
-    `<div class="account-grid">${state.accounts.map(a=>`<article class="account-card"><div class="card-top"><span class="avatar">${esc(a.name.slice(0,1))}</span><span class="badge ${a.status==='active'?'green':'red'}">${a.status==='active'?'已登录':'登录失效'}</span></div><h3>${esc(a.name)}</h3><p>${esc(a.phone||'二维码登录')} · UID ${esc(a.uid)}</p><div class="setting-row"><span>学习目标</span><b>${a.config.course_keys.length} 门课程</b></div><div class="setting-row"><span>API 配置</span><b>${a.config.inherit_api?'继承全局':'独立设置'}</b></div><div class="actions">${button('配置此用户','account-config','secondary small','',`data-id="${a.id}"`)}${button('移除','account-remove','danger small','',`data-id="${a.id}"`)}</div></article>`).join('')}</div>`;
+    `<div class="account-grid">${state.accounts.map(a=>`<article class="account-card"><div class="card-top"><span class="avatar">${esc(a.name.slice(0,1))}</span><span class="badge ${a.status==='active'?'green':'red'}">${a.status==='active'?'已登录':'登录失效'}</span></div><h3>${esc(a.name)}</h3><p>${esc(a.phone||'二维码登录')} · UID ${esc(a.uid)}</p><div class="setting-row"><span>学习目标</span><b>${a.config.course_keys.length} 门课程</b></div><div class="setting-row"><span>API 配置</span><b>${a.config.inherit_api?'继承全局':'独立设置'}</b></div><div class="actions">${button('重新登录','account-relogin','secondary small','',`data-id="${a.id}"`)}${button('配置此用户','account-config','secondary small','',`data-id="${a.id}"`)}${button('移除','account-remove','danger small','',`data-id="${a.id}"`)}</div></article>`).join('')}</div>`;
 }
 
 function signPage() {
@@ -254,7 +301,7 @@ async function refreshLive() {
   if(!state.authenticated || state.pollBusy || $('#app-screen').classList.contains('hidden') || document.hidden) return;
   state.pollBusy=true;
   try {
-    const data=await api('/jobs'); state.jobs=data.jobs; state.events=data.events; state.accounts=data.accounts;
+    const data=await api('/jobs'); if(!state.authenticated) return; state.jobs=data.jobs; state.events=data.events; state.accounts=data.accounts;
     if(state.page==='study' && $('#study-jobs')) $('#study-jobs').innerHTML=jobsHTML(state.jobs.filter(j=>j.account_id===state.active));
     if($('#overview-jobs')) $('#overview-jobs').innerHTML=jobsHTML(state.jobs.slice(0,3));
     if($('#overview-events')) $('#overview-events').innerHTML=eventsHTML();
@@ -267,7 +314,10 @@ document.addEventListener('click', async event=>{
   const target=event.target.closest('[data-action]'); if(!target) return;
   const action=target.dataset.action, id=target.dataset.id;
   if(action.startsWith('go-')) return navigate(action.slice(3));
-  if(action==='add-account') return showLogin();
+  if(action==='add-account') return showAccountLogin();
+  if(action==='account-relogin') return showAccountLogin(id);
+  if(action==='account-login-close') return closeAccountLogin();
+  if(action==='admin-close') return closeAdminLogin();
   if(action==='modal-close') return $('#modal').close();
   if(action==='sign-open') return openSign(id);
   if(action==='account-config') { state.active=id; syncAccountSwitch(); return navigate('study-config'); }
@@ -292,9 +342,17 @@ document.addEventListener('change',event=>{
 document.addEventListener('input',event=>{ if(event.target.id==='course-search') $('#course-list').innerHTML=coursesHTML(event.target.value); });
 
 document.addEventListener('submit',async event=>{
-  const form=event.target; if(!['global-api-form','study-config-form','sign-form','job-input-form'].includes(form.id)) return;
+  const form=event.target; if(!['global-api-form','study-config-form','sign-form','job-input-form','admin-settings-form'].includes(form.id)) return;
   event.preventDefault(); const accountId=state.active;
   await busy($('button[type="submit"]',form), async()=>{
+    if(form.id==='admin-settings-form') {
+      $('#admin-settings-error').textContent='';
+      const payload=Object.fromEntries(new FormData(form));
+      if(payload.new_password!==payload.confirm_password) { $('#admin-settings-error').textContent='两次输入的新密码不一致'; return; }
+      delete payload.confirm_password;
+      try { await api('/admin/credentials','PUT',payload); resetConsole(); const data=await api('/session'); state.csrf=data.csrf; $('#admin-username').value=payload.username; showLogin(); toast('管理员信息已更新，请使用新凭据重新登录'); }
+      catch(error) { if($('#admin-settings-error')) $('#admin-settings-error').textContent=error.message; throw error; }
+    }
     if(form.id==='global-api-form') { const data=await api('/settings','PUT',{api:readApi(form)}); state.settings=data; toast('全局 API 配置已保存'); render(); }
     if(form.id==='study-config-form') { const study=Object.fromEntries($$('[name^="study."]',form).map(el=>[el.name.slice(6),el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value])); const data=await api(`/accounts/${accountId}/config`,'PUT',{study,inherit_api:$('#inherit-api').checked,api:readApi(form)}); const a=state.accounts.find(a=>a.id===accountId); if(a) a.config=data.config; toast('用户刷课配置已保存'); render(); }
     if(form.id==='sign-form') { const payload=Object.fromEntries(new FormData(form)); payload.activity_id=form.dataset.activity; try{ const data=await api(`/accounts/${form.dataset.account}/sign`,'POST',payload); const activity=state.activities[form.dataset.account]?.find(a=>a.id===payload.activity_id); if(activity) activity.signed=true; $('#modal').close(); toast(data.message); render(); }catch(error){ $('#sign-error').textContent=error.message; throw error; } }
@@ -304,20 +362,34 @@ document.addEventListener('submit',async event=>{
 
 $('#password-form').addEventListener('submit',async event=>{
   event.preventDefault(); const btn=$('button[type="submit"]',event.target); $('#login-error').textContent='';
-  await busy(btn,async()=>{ try{ await afterLogin(await api('/auth/password','POST',{phone:$('#phone').value,password:$('#password').value})); }catch(error){ $('#login-error').textContent=error.message; throw error; } },'正在登录…');
+  const generation=state.loginGeneration, payload={phone:$('#phone').value,password:$('#password').value,account_id:state.loginAccount || undefined};
+  const controller=new AbortController(); state.loginAbort=controller;
+  await busy(btn,async()=>{ try{ await afterLogin(await api('/auth/password','POST',payload,{signal:controller.signal}),generation); }catch(error){ if(generation===state.loginGeneration && error.name!=='AbortError') { $('#login-error').textContent=error.message; throw error; } } },'正在登录…');
+});
+$('#admin-login-form').addEventListener('submit',async event=>{
+  event.preventDefault(); const btn=$('button[type="submit"]',event.target); $('#admin-login-error').textContent='';
+  const generation=state.adminGeneration||0, payload={username:$('#admin-username').value.trim(),password:$('#admin-password').value};
+  const controller=new AbortController(); state.adminAbort=controller;
+  await busy(btn,async()=>{ try {
+    const result=await api('/admin/login','POST',payload,{signal:controller.signal});
+    if(generation!==(state.adminGeneration||0) || !$('#admin-dialog').open) return;
+    state.csrf=result.csrf; state.authenticated=true; state.admin=result.admin; closeAdminLogin(); await bootstrap();
+  } catch(error) { if(generation===(state.adminGeneration||0) && error.name!=='AbortError') { $('#admin-login-error').textContent=error.message; throw error; } } },'正在登录…');
 });
 $('#toggle-password').onclick=()=>{ const input=$('#password'); input.type=input.type==='password'?'text':'password'; $('#toggle-password').textContent=input.type==='password'?'显示':'隐藏'; };
 $('#password-tab').onclick=()=>{ stopQR(); $('#password-tab').classList.add('selected'); $('#qr-tab').classList.remove('selected'); $('#password-tab').setAttribute('aria-selected','true'); $('#qr-tab').setAttribute('aria-selected','false'); $('#password-form').classList.remove('hidden'); $('#qr-panel').classList.add('hidden'); $('#login-error').textContent=''; };
 $('#qr-tab').onclick=()=>{ $('#qr-tab').classList.add('selected'); $('#password-tab').classList.remove('selected'); $('#qr-tab').setAttribute('aria-selected','true'); $('#password-tab').setAttribute('aria-selected','false'); $('#password-form').classList.add('hidden'); $('#qr-panel').classList.remove('hidden'); $('#login-error').textContent=''; startQR(); };
 $('#refresh-qr').onclick=()=>busy($('#refresh-qr'),startQR,'正在刷新…');
-$('#cancel-login').onclick=()=>{ stopQR(); $('#login-screen').classList.add('hidden'); $('#app-screen').classList.remove('hidden'); render(); };
-$('#add-account').onclick=showLogin;
+$('#open-admin-login').onclick=showLogin;
+$('#admin-dialog').addEventListener('cancel',event=>{ event.preventDefault(); closeAdminLogin(); });
+$('#account-dialog').addEventListener('cancel',event=>{ event.preventDefault(); closeAccountLogin(); });
+$('#add-account').onclick=()=>showAccountLogin();
 $('#account-switch').onchange=event=>{ state.active=event.target.value; state.logJob=null; state.logAfter=0; syncAccountSwitch(); render(); };
-$('#logout').onclick=()=>busy($('#logout'),async()=>{ await api('/auth/logout','POST',{}); stopQR(); state.authenticated=false; state.accounts=[]; state.active=''; state.selection={}; state.courses={}; state.activities={}; state.logJob=null; const data=await api('/session'); state.csrf=data.csrf; showLogin(); });
+$('#logout').onclick=()=>busy($('#logout'),async()=>{ closeAccountLogin(); await api('/auth/logout','POST',{}); resetConsole(); const data=await api('/session'); state.csrf=data.csrf; showLogin(); });
 window.addEventListener('hashchange',()=>{state.logAfter=0;render();});
 setInterval(refreshLive,3000);
 
 (async()=>{
-  try { const data=await api('/session'); state.csrf=data.csrf; state.authenticated=data.authenticated; if(data.authenticated) await bootstrap(); else showLogin(); }
+  try { const data=await api('/session'); if(data.auth_mode!=='admin') throw new Error('后台仍为旧版本。请等待当前任务结束后重启服务，以启用管理员登录'); state.csrf=data.csrf; state.authenticated=data.authenticated; state.admin=data.admin; if(data.authenticated) await bootstrap(); else showLogin(); }
   catch(error) { $('#loading').textContent='无法连接后台：'+error.message+'。请确认服务已启动后刷新。'; }
 })();

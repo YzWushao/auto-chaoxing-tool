@@ -59,9 +59,17 @@ class Browser:
                                 headers={"X-CSRF-Token": self.csrf, "Origin": "http://localhost"})
 
     def login(self, phone="13800000001"):
+        if not self.get("/session").json["authenticated"]:
+            self.admin_login()
         response = self.send("/auth/password", {"phone": phone, "password": "fixture-password"})
         assert response.status_code == 200, response.json
         return response.json["account"]
+
+    def admin_login(self, username="admin", password="admin"):
+        response = self.send("/admin/login", {"username": username, "password": password})
+        if response.status_code == 200:
+            self.csrf = response.json["csrf"]
+        return response
 
 
 @pytest.fixture

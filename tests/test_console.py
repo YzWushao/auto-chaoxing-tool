@@ -21,21 +21,20 @@ def test_guards_and_headers(app, browser):
     assert browser.client.get("/legal/not-a-file").status_code == 404
 
 
-def test_multiple_accounts_and_workspace_isolation(app, browser):
+def test_multiple_accounts_require_administrator(app, browser):
     first = browser.login()
     second = browser.login("13800000002")
     assert len(browser.get("/bootstrap").json["accounts"]) == 2
     outsider = Browser(app)
-    outsider.login("13800000003")
-    assert len(outsider.get("/bootstrap").json["accounts"]) == 1
+    assert outsider.send("/auth/password", {"phone": "13800000003", "password": "fixture-password"}).status_code == 401
     for suffix in ("/courses", "/activities"):
-        assert outsider.get(f"/accounts/{first['id']}" + suffix).status_code == 404
-    assert outsider.send(f"/accounts/{first['id']}/config", {}, "PUT").status_code == 404
-    assert outsider.send(f"/accounts/{second['id']}", {}, "DELETE").status_code == 404
-    # The secondary identity does not gain access to the primary owner's workspace.
+        assert outsider.get(f"/accounts/{first['id']}" + suffix).status_code == 401
+    assert outsider.send(f"/accounts/{first['id']}/config", {}, "PUT").status_code == 401
+    assert outsider.send(f"/accounts/{second['id']}", {}, "DELETE").status_code == 401
+    # The same administrator, not a platform identity, owns the console.
     secondary = Browser(app)
-    secondary.login("13800000002")
-    assert len(secondary.get("/bootstrap").json["accounts"]) == 1
+    secondary.admin_login()
+    assert len(secondary.get("/bootstrap").json["accounts"]) == 2
 
 
 def test_encrypted_storage_and_masked_updates(app, browser):
@@ -44,7 +43,7 @@ def test_encrypted_storage_and_masked_updates(app, browser):
     assert response.json["api"]["key"] == MASK
     browser.send("/settings", {"api": {"key": MASK, "model": "updated"}}, "PUT")
     store = app.extensions["store"]
-    assert store.settings(account["uid"])["api"]["key"] == "secret-global-key"
+    assert store.settings(store.managed_owners(1)[0])["api"]["key"] == "secret-global-key"
     visible = json.dumps(browser.get("/bootstrap").json)
     assert "secret-global-key" not in visible and "private-session-fixture" not in visible
     with store.connect() as db:
@@ -53,7 +52,7 @@ def test_encrypted_storage_and_masked_updates(app, browser):
     for secret in ("secret-global-key", "private-session-fixture", "fixture-password"):
         assert secret not in raw
     browser.send("/settings", {"api": {"key": ""}}, "PUT")
-    assert store.settings(account["uid"])["api"]["key"] == ""
+    assert store.settings(store.managed_owners(1)[0])["api"]["key"] == ""
 
 
 def test_config_targets_and_api_inheritance(app, browser, monkeypatch):
