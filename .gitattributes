@@ -1,3 +1,7 @@
 # Preserve the exact bytes of bundled upstream assets and their license.
 web/vendor/jsqr-1.4.0.js -text
 licenses/jsqr-Apache-2.0.txt -text
+web/vendor/leaflet-1.9.4/* -text -whitespace
+web/vendor/coordtransform-2.1.2.js -text -whitespace
+licenses/leaflet-BSD-2-Clause.txt -text -whitespace
+licenses/coordtransform-MIT.txt -text -whitespace

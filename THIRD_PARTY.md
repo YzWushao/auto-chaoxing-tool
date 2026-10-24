@@ -31,3 +31,14 @@
 - 原始发行文件 `dist/jsQR.js` 原样复制为 `web/vendor/jsqr-1.4.0.js`；SHA-256：`bc40c8a15196236b2314db0856f72ca0b49980cd5413b8c852a7349f5fee0859`。
 - npm 包 integrity：`sha512-dxLob7q65Xg2DvstYkRpkYtmKm2sPJ9oFhrhmudT1dZvNFFTlroai3AWSpLey/w5vMcLBXRgOJsbXpdN9HzU/A==`。
 - 用途：`web/sign-qr-worker.js` 在浏览器本地解码图片；`web/sign-qr.js` 提取二维码内容、enc 和活动编号。不额外拦截活动编号不一致或疑似过期的二维码，提交后仍由后台 / 平台返回结果。
+
+## Leaflet / coordtransform / OpenStreetMap（2026-10-24 集成）
+
+- Leaflet 来源：https://github.com/Leaflet/Leaflet，固定 npm 包 `leaflet@1.9.4`，BSD-2-Clause。原始 `dist/leaflet.js`、`dist/leaflet.css` 和 `dist/images/` 原样复制到 `web/vendor/leaflet-1.9.4/`；许可证见 `licenses/leaflet-BSD-2-Clause.txt`。
+- Leaflet JS SHA-256：`db49d009c841f5ca34a888c96511ae936fd9f5533e90d8b2c4d57596f4e5641a`；CSS SHA-256：`a7837102824184820dfa198d1ebcd109ff6d0ff9a2672a074b9a1b4d147d04c6`。
+- Leaflet npm integrity：`sha512-nxS1ynzJOmOlHp+iL3FyWqK89GtNL8U8rvlMOsQdTTssxZwCXh8N2NB3GDQOL+YR3XnWyZAxwQixURb+FA74PA==`。
+- coordtransform 来源：https://github.com/wandergis/coordtransform，固定 npm 包 `coordtransform@2.1.2`，MIT，Copyright (c) 2015 记忆的残骸。原始 `index.js` 原样复制为 `web/vendor/coordtransform-2.1.2.js`；许可证见 `licenses/coordtransform-MIT.txt`。
+- coordtransform JS SHA-256：`6037d92d149615c8557985ec5d025052dafda804cee8464b1e5ad7bf1915c89d`；npm integrity：`sha512-0xLJApBlrUP+clyLJWIaqg4GXE5JTbAJb5d/CDMqebIksAMMze8eAyO6YfHEIxWJ+c42mXoMHBzWTeUrG7RFhw==`。
+- `web/sign-map.js` 封装地图选点与本地 WGS84 / GCJ-02 / BD-09 转换；GCJ 反向转换使用迭代逼近，不能据此承诺测量精度。默认 BD-09 沿用签到参考项目 README 的百度拾取流程，不代表平台永远要求该坐标系。
+- 底图由 https://tile.openstreetmap.org 在线提供，数据版权 © OpenStreetMap contributors（[ODbL](https://www.openstreetmap.org/copyright)），不随仓库打包地图数据；显示可点击署名，遵守 [瓦片使用政策](https://operations.osmfoundation.org/policies/tiles/)。仅在用户展开地图时加载视野瓦片，不预抓取、不禁用缓存；跨站 Referer 仅发送站点来源，不含页面路径或查询串。
+- 手动公开地名查询默认使用 [Nominatim Search API](https://nominatim.org/release-docs/latest/api/Search/)，遵守 [使用政策](https://operations.osmfoundation.org/policies/nominatim/)。独立后端请求、标识应用、全局串行限流（间隔 1.1 秒）、同词缓存 24 小时；无自动补全、批量查询、定时查询或逆地理编码。仅供本机小规模点位工具，部署者须负责合规及总流量限制；环境变量可替换 / 关闭服务，见 README。

@@ -5,7 +5,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const activeStates = new Set(['queued','running','waiting','stopping']);
-const titles = {overview:'总览',study:'刷课中心','study-config':'刷课参数',sign:'签到中心',accounts:'用户管理',settings:'设置'};
+const titles = {overview:'总览',study:'刷课中心','study-config':'刷课参数',sign:'签到中心',accounts:'用户管理',settings:'设置',presets:'预设点位'};
 const jobLabels = {queued:'排队中',running:'运行中',waiting:'等待输入',stopping:'正在停止',succeeded:'已完成',partial:'部分完成',failed:'失败',cancelled:'已停止',interrupted:'已中断'};
 const kindLabels = {normal:'普通签到',gesture:'手势签到',qr:'二维码签到',location:'位置签到',photo:'拍照签到',code:'签到码'};
 const labels = {provider:'题库 / API 提供方',endpoint:'API Endpoint',key:'API Key',model:'模型名称',tokens:'题库 Token',submit:'自动提交章节检测',cover_rate:'最低题库覆盖率',delay:'题目查询间隔（秒）',check_llm_connection:'启动时检查 AI 连接',min_interval_seconds:'AI 请求间隔（秒）',http_proxy:'代理地址',likeapi_search:'LIKE 联网搜索',likeapi_vision:'LIKE 视觉能力',likeapi_model:'LIKE 模型',likeapi_retry:'LIKE 自动重试',likeapi_retry_times:'LIKE 重试次数',url:'TikuAdapter 服务地址',go_authorization:'GO 题库授权 Token',go_min_interval:'GO 请求间隔（秒）',go_retry_times:'GO 重试次数',go_retry_backoff:'GO 退避基数',siliconflow_key:'硅基流动 API Key',siliconflow_model:'硅基流动模型',siliconflow_endpoint:'硅基流动 Endpoint',manual_mode_default:'手动答题模式',manual_mode_separator:'手动答题分隔符',true_list:'判断题正确词表',false_list:'判断题错误词表'};
@@ -110,6 +110,7 @@ async function afterLogin(result,generation) {
 
 async function bootstrap() {
   const data = await api('/bootstrap'); if(!state.authenticated) return; Object.assign(state,data);
+  $('.version span').textContent='v'+state.system.version;
   if (!state.accounts.some(a => a.id === state.active)) state.active = state.accounts[0]?.id || '';
   for(const a of state.accounts) if(!state.selection[a.id]) state.selection[a.id] = new Set(a.config.course_keys);
   $('#login-screen').classList.add('hidden'); $('#loading').classList.add('hidden'); $('#app-screen').classList.remove('hidden');
@@ -118,7 +119,7 @@ async function bootstrap() {
 
 function resetConsole() {
   state.authenticated=false; state.admin=null; closeAccountLogin();
-  state.accounts=[]; state.jobs=[]; state.events=[]; state.active=''; state.selection={}; state.courses={}; state.activities={}; state.logJob=null; state.logAfter=0;
+  state.accounts=[]; state.jobs=[]; state.events=[]; state.location_presets=[]; state.active=''; state.selection={}; state.courses={}; state.activities={}; state.logJob=null; state.logAfter=0;
   $('#page-content').replaceChildren();
 }
 
@@ -144,8 +145,8 @@ function render() {
   if (!state.authenticated) return;
   const page = location.hash.slice(1); state.page = titles[page] ? page : 'overview';
   $('#breadcrumb-title').textContent=titles[state.page];
-  $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === (state.page==='study-config'?'study':state.page)));
-  const renderers = {overview:overviewPage,study:studyPage,'study-config':configPage,sign:signPage,accounts:accountsPage,settings:settingsPage};
+  $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === (state.page==='study-config'?'study':state.page==='presets'?'settings':state.page)));
+  const renderers = {overview:overviewPage,study:studyPage,'study-config':configPage,sign:signPage,accounts:accountsPage,settings:settingsPage,presets:presetsPage};
   $('#page-content').innerHTML = (state.admin?.default_password?'<div class="notice">管理员仍使用默认密码，请到 <a href="#settings">设置 → 管理员账号与密码</a> 修改后再开放远程访问。</div>':'')+renderers[state.page]();
   if (state.page==='study' && state.logJob) { state.logAfter=0; loadLogs(); }
 }
@@ -232,7 +233,7 @@ function configPage() {
 }
 
 function settingsPage() {
-  return heading('设置','管理管理员凭据、全局 API 配置与服务信息。')+adminPanel()+
+  return heading('设置','管理管理员凭据、预设点位、全局 API 配置与服务信息。')+presetsSettingsEntry()+adminPanel()+
     `<div class="settings-grid"><form id="global-api-form" class="panel"><div class="panel-header"><div><h3>全局 API 配置</h3><p class="subheading">所有开启“使用全局 API 配置”的用户将自动继承</p></div><span class="badge purple">默认配置</span></div><div class="panel-body">${apiFields(state.settings.api)}</div><div class="panel-actions"><small>密钥加密保存，仅返回脱敏信息</small><button type="submit" class="button primary">保存全局配置</button></div></form><aside><section class="panel"><div class="panel-header"><h3>扩展计划</h3><span class="badge">TODO</span></div><div class="panel-body">${state.integrations.map(i=>`<div class="integration"><span class="integration-icon">${icon('link')}</span><div><h3>${esc(i.name)} <span class="badge">待接入</span></h3><p>${esc(i.description)}</p></div></div>`).join('')}</div></section><section class="panel"><div class="panel-header"><h3>服务信息</h3></div><div class="panel-body"><div class="setting-row"><span>当前版本</span><b>${esc(state.system.version)}</b></div><div class="setting-row"><span>会话隔离</span><b>按用户隔离</b></div><div class="setting-row"><span>凭据存储</span><b>本地加密</b></div><div class="setting-row"><span>OCR 扩展</span><b>${state.system.ocr?'已安装':'未安装（可选）'}</b></div><p class="setting-note">第三方推送与 NapCat 当前仅列入计划。登录失效、任务结果等事件已经在“最近动态”中记录。</p></div></section></aside></div>${creditsPanel()}`;
 }
 
@@ -250,22 +251,102 @@ function signPage() {
 
 function openSign(id) {
   const a=state.activities[state.active]?.find(x=>x.id===id); if(!a) return;
-  cancelSignQR();
+  cancelSignQR(); closeSignMap(); state.signMapPoint=null;
   const kind=a.photo?'photo':a.kind;
   $('#modal-content').innerHTML=`<form id="sign-form" data-activity="${esc(id)}" data-account="${state.active}"><div class="modal-head"><h2>${esc(a.title)}</h2><button type="button" class="icon-button" data-action="modal-close" aria-label="关闭">×</button></div><div class="modal-body"><p class="muted">${esc(a.course.title)} · ${esc(current().name)}</p><div class="field"><label for="sign-kind">签到方式</label><select id="sign-kind" name="kind">${Object.entries(kindLabels).map(([k,l])=>`<option value="${k}" ${kind===k?'selected':''}>${l}</option>`).join('')}</select></div><div class="gap"></div><div id="sign-fields">${signFields(kind)}</div><p class="inline-error" id="sign-error"></p></div><div class="modal-actions"><button type="button" class="button secondary" data-action="modal-close">取消</button><button type="submit" class="button primary">确认提交签到</button></div></form>`;
   $('#modal').showModal();
 }
 
-function signFields(kind) {
+function signFields(kind) { return (kind==='location'?locationPresetsHTML():'')+baseSignFields(kind); }
+function baseSignFields(kind) {
   const field=(key,label,placeholder='',type='text')=>`<div class="field"><label for="sign-${key}">${label}</label><input id="sign-${key}" name="${key}" type="${type}" placeholder="${placeholder}" required ${type==='number'?'step="any"':''}></div>`;
   if(kind==='qr') return `<div class="qr-upload"><label for="sign-qr-file">上传本地二维码图片</label><input id="sign-qr-file" type="file" accept="image/png,image/jpeg,image/webp"><p class="setting-note">PNG / JPEG / WebP，最大 8 MB。仅在浏览器本地解码，自动填入下方参数；不判断活动是否匹配或二维码是否过期。</p><div class="qr-file-result" aria-live="polite"><img id="sign-qr-preview" class="hidden" alt="已选择的二维码图片"><p id="sign-qr-message">也可以直接粘贴二维码链接或 enc。</p></div></div>`+field('qr','当前签到二维码链接 / enc','上传图片后自动填入，也可手动粘贴')+'<p class="setting-note">识别成功不代表二维码仍有效。请点击“确认提交签到”，以后台和平台返回结果为准。</p>';
-  if(kind==='location') return `<div class="field-grid">${field('longitude','经度','如 116.40','number')}${field('latitude','纬度','如 39.90','number')}<div class="field full">${field('address','位置说明','填写当前位置')}</div></div>`;
+  if(kind==='location') return `<div class="location-toolbar">${button('地图拾取坐标','sign-map-toggle','secondary small')}<small>放大后点击选点，或拖动标记微调</small></div><section id="sign-map-panel" class="sign-map-panel hidden" aria-label="地图坐标拾取"><div class="sign-map-controls">${button('定位当前位置','sign-map-locate','secondary small')}${button('使用地图中心','sign-map-center','secondary small')}${button('按已填坐标定位','sign-map-input','secondary small')}</div><div id="sign-map-canvas" class="sign-map-canvas" role="region" aria-label="选点地图"></div><div id="sign-map-readout" class="sign-map-readout">尚未选点，不会填入默认坐标。</div><p id="sign-map-message" class="sign-map-message" role="status">地图支持缩放至 19 级；点击地点后自动回填下方坐标。</p><p class="setting-note">在线底图由 OpenStreetMap 提供，打开地图会向其请求当前视野的图片，不发送超星账号或 Cookies。6 位小数仅为保存精度，不代表实地精确到分米；设备定位、底图和坐标转换均可能有误差。请确认本人实际位置，不用于伪造出勤。</p></section><div class="field location-system"><label for="sign-coordinate-system">回填 / 已填坐标的坐标系</label><select id="sign-coordinate-system"><option value="bd09">百度 BD-09（沿用签到参考项目）</option><option value="gcj02">高德 / 腾讯 GCJ-02</option><option value="wgs84">GPS / OpenStreetMap WGS84</option></select><small>百度与高德坐标不可混用。切换会转换当前地图选点；手填坐标不会被静默改写。最终要求以当前平台为准。</small></div><div class="field-grid">${field('longitude','经度','如 116.40','number')}${field('latitude','纬度','如 39.90','number')}<div class="field full">${field('address','位置说明','请核对并填写实际地点')}</div></div>`;
   if(kind==='photo') return field('object_id','超星云盘图片 objectId','填写已经上传的图片对象 ID')+'<p class="setting-note">初期版本支持已有图片对象 ID，网页直接上传图片列入后续优化。</p>';
   if(kind==='gesture'||kind==='code') return field('code',kind==='gesture'?'手势数字序列':'签到码','输入本次活动提供的数字');
   return '<p class="setting-note">将使用当前用户会话提交此普通签到活动。</p>';
 }
 
 function cancelSignQR() { state.signQRAbort?.abort(); state.signQRAbort=null; }
+
+function locationPresetsHTML() {
+  return presetsMapHTML();
+}
+function presetSchoolChanged() {
+  const value=$('#preset-school').value, school=value===''?null:state.location_presets[Number(value)];
+  const select=$('#preset-point'); select.disabled=!school;
+  select.innerHTML='<option value="">'+(school?'请选择教学楼 / 教学区':'先选择学校')+'</option>'+(school?school.points.map((p,i)=>`<option value="${i}">${esc(p.name)}</option>`).join(''):'');
+}
+async function importLocationPresets(file) {
+  if(!file) return;
+  const form=$('#sign-form'), message=$('#presets-message');
+  try {
+    if(file.size>8*1024*1024) throw new Error('单个 JSON 文件最大 8 MB，可拆分文件导入；已保存点位数量不限');
+    let config;
+    try { config=JSON.parse((await file.text()).replace(/^\uFEFF/,'')); }
+    catch { throw new Error('配置不是有效的 JSON，请参考示例文件'); }
+    const names=config?.schools?.map?.(s=>s.school)||[config?.school];
+    const duplicates=(state.location_presets||[]).filter(s=>names.includes(s.school));
+    const replace=duplicates.length>0;
+    if(replace && !confirm(`有 ${duplicates.length} 所学校已存在。是否覆盖这些同名学校的全部点位？建议先导出备份。`)) return;
+    message.textContent='正在校验并保存学校点位…';
+    const data=await api('/location-presets','POST',{config,replace});
+    if(!state.authenticated) return;
+    state.location_presets=data.location_presets;
+    presetsUpdated(data.location_presets,data.schools[0]);
+    toast('学校点位已保存，重启后仍可使用');
+  } catch(error) { if(message?.isConnected) message.textContent=error.message; toast(error.message,true); }
+  finally { if($('#school-presets-file')) $('#school-presets-file').value=''; }
+}
+function applyLocationPreset() {
+  const schoolValue=$('#preset-school').value, pointValue=$('#preset-point').value;
+  if(schoolValue==='' || pointValue==='') { $('#presets-message').textContent='请先选择学校和教学楼 / 教学区。'; return; }
+  const school=state.location_presets[Number(schoolValue)], preset=school.points[Number(pointValue)];
+  const coordinateSystem=preset.coordinate_system||school.coordinate_system;
+  $('#sign-coordinate-system').value=coordinateSystem;
+  const p=SignMap.toWGS84(SignMap.point(preset.longitude,preset.latitude),coordinateSystem);
+  $('#sign-address').value=preset.address; state.signMapAddress='';
+  if(state.signMap) state.signMap.center(p); else fillSignMap(p);
+  $('#presets-message').textContent=`已应用：${school.school} / ${preset.name}（${coordinateSystem.toUpperCase()}）。请核对本人实际位置；尚未提交签到。`;
+}
+
+function closeSignMap() {
+  stopMapSearch('sign');
+  state.signMap?.destroy(); state.signMap=null;
+  $('#modal').classList.remove('map-expanded');
+}
+function signMapStatus(message,error=false) {
+  const el=$('#sign-map-message'); if(!el) return;
+  el.textContent=message; el.classList.toggle('error',error);
+}
+function fillSignMap(point,accuracy) {
+  state.signMapPoint=point;
+  const target=$('#sign-coordinate-system').value, value=SignMap.formatted(point,target);
+  $('#sign-longitude').value=value.longitude; $('#sign-latitude').value=value.latitude;
+  const address=$('#sign-address');
+  if(!address.value || address.value===state.signMapAddress) {
+    state.signMapAddress=`地图选点（经度 ${value.longitude}，纬度 ${value.latitude}）`;
+    address.value=state.signMapAddress;
+  }
+  $('#sign-error').textContent='';
+  if($('#sign-map-readout')) $('#sign-map-readout').textContent=`${target.toUpperCase()} · 经度 ${value.longitude} · 纬度 ${value.latitude}`;
+  signMapStatus(Number.isFinite(accuracy)?`设备报告的定位误差半径约 ${Math.ceil(accuracy)} 米${accuracy>100?'，当前定位较粗，请放大并核对':''}。已回填，请核对位置说明。`:'已回填选点坐标，请核对位置说明；尚未提交签到。');
+}
+function toggleSignMap() {
+  const panel=$('#sign-map-panel');
+  if(state.signMap) { closeSignMap(); panel.classList.add('hidden'); $('[data-action="sign-map-toggle"]').textContent='地图拾取坐标'; return; }
+  panel.classList.remove('hidden'); $('#modal').classList.add('map-expanded');
+  if(!$('#sign-map-query')) panel.insertAdjacentHTML('afterbegin',mapSearchHTML('sign'));
+  try {
+    state.signMap=SignMap.mount($('#sign-map-canvas'),{L:window.L,onSelect:fillSignMap,onStatus:signMapStatus});
+    $('[data-action="sign-map-toggle"]').textContent='收起地图';
+    if($('#sign-longitude').value && $('#sign-latitude').value) centerSignMap();
+  } catch(error) { closeSignMap(); signMapStatus(error.message,true); }
+}
+function centerSignMap() {
+  try { state.signMap?.center(SignMap.toWGS84(SignMap.point($('#sign-longitude').value,$('#sign-latitude').value),$('#sign-coordinate-system').value)); }
+  catch(error) { signMapStatus(error.message,true); }
+}
 
 async function loadSignQR(file) {
   cancelSignQR(); if(!file) return;
@@ -341,10 +422,29 @@ document.addEventListener('click', async event=>{
   if(action==='admin-close') return closeAdminLogin();
   if(action==='modal-close') return $('#modal').close();
   if(action==='sign-open') return openSign(id);
+  if(action==='presets-import') return $('#school-presets-file').click();
+  if(action==='presets-apply') return applyLocationPreset();
+  if(action==='presets-manage') { $('#modal').close(); return navigate('presets'); }
+  if(action==='preset-new') return openPresetEditor(Number(target.dataset.school));
+  if(action==='school-new') return openSchoolEditor();
+  if(action==='school-edit') return openSchoolEditor(Number(target.dataset.school));
+  if(action==='preset-edit') return openPresetEditor(Number(target.dataset.school),Number(target.dataset.point));
+  if(action==='map-search') return busy(target,()=>runMapSearch(target.dataset.context),'搜索中…');
+  if(action==='map-search-result') return chooseMapSearch(target.dataset.context,Number(target.dataset.index));
+  if(action==='preset-map-center') return state.presetMap?.useCenter();
+  if(action==='preset-map-input') return centerPresetMap();
+  if(action==='sign-map-toggle') return toggleSignMap();
+  if(action==='sign-map-locate') return busy(target,()=>state.signMap?.locate(navigator.geolocation),'正在定位…');
+  if(action==='sign-map-center') return state.signMap?.useCenter();
+  if(action==='sign-map-input') return centerSignMap();
   if(action==='account-config') { state.active=id; syncAccountSwitch(); return navigate('study-config'); }
   if(action==='job-log') { state.logJob=id; state.logAfter=0; navigate('study'); if(state.page==='study') render(); return; }
   if(action==='courses-toggle') { const list=state.courses[state.active]||[]; const selected=state.selection[state.active]; if(!selected) return; const all=list.length&&list.every(c=>selected.has(c.key)); list.forEach(c=>all?selected.delete(c.key):selected.add(c.key)); $('#course-list').innerHTML=coursesHTML($('#course-search').value); $('#selection-count').textContent=selected.size; return; }
   await busy(target,async()=>{
+    if(action==='school-inline-create') { const name=$('#inline-school-name').value.trim(),data=await api('/location-presets/school','PUT',{name}); presetsUpdated(data.location_presets,name); toast('学校已创建，可以保存子点位'); }
+    if(action==='school-delete') { const school=state.location_presets[Number(target.dataset.school)]; if(!confirm(`删除学校“${school.school}”及其 ${school.points.length} 个子点位？请先导出 JSON 备份。`)) return; const data=await api('/location-presets/school','DELETE',{name:school.school}); presetsUpdated(data.location_presets); toast('学校及其子点位已删除，可导入此前导出的 JSON 备份恢复'); }
+    if(action==='presets-save-current') await saveCurrentPoint();
+    if(action==='preset-delete') { const school=state.location_presets[Number(target.dataset.school)], point=school.points[Number(target.dataset.point)]; if(!confirm(`删除“${school.school} / ${point.name}”？删除后可通过之前导出的 JSON 备份恢复。`)) return; const data=await api('/location-presets/point','DELETE',{school:school.school,name:point.name}); presetsUpdated(data.location_presets); toast('点位已删除；可导入此前导出的 JSON 备份恢复'); }
     if(action==='courses-refresh') { const accountId=state.active; const data=await api(`/accounts/${accountId}/courses`); state.courses[accountId]=data.courses; if(accountId===state.active&&$('#course-list')) $('#course-list').innerHTML=coursesHTML($('#course-search')?.value||''); toast(`已读取 ${data.courses.length} 门课程`); }
     if(action==='courses-save') { await saveTargets(); toast('学习目标已保存'); }
     if(action==='study-start') { const accountId=state.active; await saveTargets(accountId); const data=await api(`/accounts/${accountId}/study`,'POST',{}); state.jobs.unshift(data.job); state.logJob=data.job.id; state.logAfter=0; render(); toast('任务已启动，可在日志区查看进度'); }
@@ -358,15 +458,26 @@ document.addEventListener('change',event=>{
   if(event.target.id==='study-mode') $('#timing-notice').textContent=timingNotice(event.target.value==='duration');
   if(event.target.dataset.course) { const set=state.selection[state.active]; if(event.target.checked) set.add(event.target.dataset.course); else set.delete(event.target.dataset.course); $('#selection-count').textContent=set.size; }
   if(event.target.id==='inherit-api') $('#inherit-notice').classList.toggle('hidden',!event.target.checked);
-  if(event.target.id==='sign-kind') { cancelSignQR(); $('#sign-fields').innerHTML=signFields(event.target.value); }
+  if(event.target.id==='sign-kind') { cancelSignQR(); closeSignMap(); state.signMapPoint=null; state.signMapAddress=''; $('#sign-fields').innerHTML=signFields(event.target.value); }
+  if(event.target.id==='sign-coordinate-system') { if(state.signMapPoint) fillSignMap(state.signMapPoint); else signMapStatus('坐标系已切换，手填数值保持不变；请确认手填坐标属于所选坐标系。'); }
   if(event.target.id==='sign-qr-file') loadSignQR(event.target.files[0]);
+  if(event.target.id==='school-presets-file') importLocationPresets(event.target.files[0]);
+  if(event.target.id==='preset-school') presetSchoolChanged();
+  if(event.target.id==='edit-point-system' && state.presetMapPoint) fillPresetMap(state.presetMapPoint);
 });
-document.addEventListener('input',event=>{ if(event.target.id==='course-search') $('#course-list').innerHTML=coursesHTML(event.target.value); });
+document.addEventListener('input',event=>{
+  if(event.target.id==='course-search') $('#course-list').innerHTML=coursesHTML(event.target.value);
+  if(['sign-longitude','sign-latitude'].includes(event.target.id)) { state.signMapPoint=null; signMapStatus('坐标已手动修改，地图标记可能未同步。点击“按已填坐标定位”可核对位置。'); }
+  if(['edit-point-lng','edit-point-lat'].includes(event.target.id)) state.presetMapPoint=null;
+});
+document.addEventListener('keydown',event=>{ if(event.key==='Enter' && ['sign-map-query','preset-map-query'].includes(event.target.id)) { event.preventDefault(); const context=event.target.id.split('-')[0]; $(`[data-action="map-search"][data-context="${context}"]`).click(); } });
 
 document.addEventListener('submit',async event=>{
-  const form=event.target; if(!['global-api-form','study-config-form','sign-form','job-input-form','admin-settings-form'].includes(form.id)) return;
+  const form=event.target; if(!['global-api-form','study-config-form','sign-form','job-input-form','admin-settings-form','preset-edit-form','school-edit-form'].includes(form.id)) return;
   event.preventDefault(); const accountId=state.active;
   await busy($('button[type="submit"]',form), async()=>{
+    if(form.id==='school-edit-form') { try { await saveSchoolEditor(form); } catch(error) { $('#school-edit-error').textContent=error.message; throw error; } }
+    if(form.id==='preset-edit-form') { try { await savePresetEditor(form); } catch(error) { $('#preset-edit-error').textContent=error.message; throw error; } }
     if(form.id==='admin-settings-form') {
       $('#admin-settings-error').textContent='';
       const payload=Object.fromEntries(new FormData(form));
@@ -405,7 +516,7 @@ $('#refresh-qr').onclick=()=>busy($('#refresh-qr'),startQR,'正在刷新…');
 $('#open-admin-login').onclick=showLogin;
 $('#admin-dialog').addEventListener('cancel',event=>{ event.preventDefault(); closeAdminLogin(); });
 $('#account-dialog').addEventListener('cancel',event=>{ event.preventDefault(); closeAccountLogin(); });
-$('#modal').addEventListener('close',cancelSignQR);
+$('#modal').addEventListener('close',()=>{cancelSignQR();closeSignMap();closePresetMap();state.signMapPoint=null;state.signMapAddress='';});
 $('#add-account').onclick=()=>showAccountLogin();
 $('#account-switch').onchange=event=>{ state.active=event.target.value; state.logJob=null; state.logAfter=0; syncAccountSwitch(); render(); };
 $('#logout').onclick=()=>busy($('#logout'),async()=>{ closeAccountLogin(); await api('/auth/logout','POST',{}); resetConsole(); const data=await api('/session'); state.csrf=data.csrf; showLogin(); });

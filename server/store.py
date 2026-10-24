@@ -49,6 +49,10 @@ class Store:
                     updated_at TEXT NOT NULL, UNIQUE(owner, uid)
                 );
                 CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS location_presets (
+                    owner TEXT NOT NULL, school TEXT NOT NULL, value TEXT NOT NULL,
+                    PRIMARY KEY(owner, school)
+                );
                 CREATE TABLE IF NOT EXISTS jobs (
                     id TEXT PRIMARY KEY, owner TEXT NOT NULL, account_id TEXT NOT NULL,
                     state TEXT NOT NULL, progress TEXT NOT NULL, created_at TEXT NOT NULL,
@@ -228,6 +232,73 @@ class Store:
         with self.connect() as db:
             db.execute("INSERT INTO events(owner,account_id,kind,message,created_at) VALUES (?,?,?,?,?)", (owner, account_id, kind, message, now()))
             db.execute("DELETE FROM events WHERE owner=? AND id NOT IN (SELECT id FROM events WHERE owner=? ORDER BY id DESC LIMIT 500)", (owner, owner))
+
+    def location_presets(self, owner):
+        with self.connect() as db:
+            return [self.unseal(row['value']) for row in db.execute('SELECT value FROM location_presets WHERE owner=? ORDER BY school', (owner,))]
+
+    def import_location_presets(self, owner, values, replace=False):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for value in values:
+                exists = db.execute('SELECT 1 FROM location_presets WHERE owner=? AND school=?', (owner, value['school'])).fetchone()
+                if exists and not replace:
+                    raise ValueError('同名学校配置已存在，请确认后覆盖再导入')
+                db.execute('INSERT INTO location_presets VALUES (?,?,?) ON CONFLICT(owner,school) DO UPDATE SET value=excluded.value',
+                           (owner, value['school'], self.seal(value)))
+
+    def save_location_point(self, owner, school, point, original=None):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            def read(name):
+                row = db.execute('SELECT value FROM location_presets WHERE owner=? AND school=?', (owner, name)).fetchone()
+                if not row:
+                    raise ValueError('学校不存在，请先新建学校，再添加点位')
+                return self.unseal(row['value'])
+            target = read(school)
+            if any(p['name'] == point['name'] for p in target['points']) and original != {'school':school,'name':point['name']}:
+                raise ValueError('该学校已存在同名点位，请使用编辑功能或更换名称')
+            if original:
+                source = target if original['school'] == school else read(original['school'])
+                if not any(p['name'] == original['name'] for p in source['points']):
+                    raise KeyError('point')
+                source['points'] = [p for p in source['points'] if p['name'] != original['name']]
+                if source is not target:
+                    db.execute('UPDATE location_presets SET value=? WHERE owner=? AND school=?', (self.seal(source),owner,original['school']))
+            target['points'].append(point)
+            db.execute('INSERT INTO location_presets VALUES (?,?,?) ON CONFLICT(owner,school) DO UPDATE SET value=excluded.value', (owner,school,self.seal(target)))
+
+    def delete_location_point(self, owner, school, name):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT value FROM location_presets WHERE owner=? AND school=?', (owner,school)).fetchone()
+            if not row:
+                raise KeyError('point')
+            value = self.unseal(row['value'])
+            if not any(p['name'] == name for p in value['points']):
+                raise KeyError('point')
+            value['points'] = [p for p in value['points'] if p['name'] != name]
+            db.execute('UPDATE location_presets SET value=? WHERE owner=? AND school=?', (self.seal(value),owner,school))
+
+    def save_location_school(self, owner, name, original=None):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            exists=db.execute('SELECT 1 FROM location_presets WHERE owner=? AND school=?',(owner,name)).fetchone()
+            if exists and name != original:
+                raise ValueError('已存在同名学校')
+            value={'version':1,'school':name,'coordinate_system':'bd09','points':[]}
+            if original:
+                row=db.execute('SELECT value FROM location_presets WHERE owner=? AND school=?',(owner,original)).fetchone()
+                if not row:
+                    raise KeyError('school')
+                value=self.unseal(row['value']); value['school']=name
+                db.execute('DELETE FROM location_presets WHERE owner=? AND school=?',(owner,original))
+            db.execute('INSERT INTO location_presets VALUES (?,?,?)',(owner,name,self.seal(value)))
+
+    def delete_location_school(self, owner, name):
+        with self.connect() as db:
+            if not db.execute('DELETE FROM location_presets WHERE owner=? AND school=?',(owner,name)).rowcount:
+                raise KeyError('school')
 
     def events(self, owner):
         with self.connect() as db:

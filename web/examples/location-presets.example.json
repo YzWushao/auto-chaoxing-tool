@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "school": "示例学校（请替换）",
+  "coordinate_system": "wgs84",
+  "points": [
+    {
+      "name": "1号教学楼（示例，请核对）",
+      "longitude": 116.404000,
+      "latitude": 39.915000,
+      "address": "示例学校 · 1号教学楼（请替换为实际位置）"
+    },
+    {
+      "name": "第二教学区（示例，请核对）",
+      "longitude": 116.405000,
+      "latitude": 39.916000,
+      "address": "示例学校 · 第二教学区（请替换为实际位置）"
+    }
+  ]
+}

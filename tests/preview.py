@@ -4,6 +4,7 @@ This server uses fake platform responses; run.py never imports this module.
 Test credentials are labels, not real platform credentials.
 """
 import tempfile
+import os
 import subprocess
 import base64
 from types import SimpleNamespace
@@ -30,7 +31,9 @@ class PreviewClient(FakeClient):
 
     def activities(self, courses):
         return [*super().activities(courses), {"id": "902", "title": "二维码签到（离线测试）", "kind": "qr",
-                                              "course": courses[0], "photo": False, "start_time": None}]
+                                              "course": courses[0], "photo": False, "start_time": None},
+                {"id": "903", "title": "位置签到（离线测试）", "kind": "location",
+                 "course": courses[0], "photo": False, "start_time": None}]
 
     def sign(self, activity, supplied, name):
         if 'EXPIRED_TEST_TOKEN' in str(supplied.get('qr', '')):
@@ -39,7 +42,8 @@ class PreviewClient(FakeClient):
 
 
 if __name__ == "__main__":
-    app = create_app({"DATA_DIR": tempfile.mkdtemp(prefix="auto-chaoxing-ui-test-")}, PreviewClient)
+    app = create_app({"DATA_DIR": os.getenv('AUTO_CHAOXING_PREVIEW_DATA_DIR') or tempfile.mkdtemp(prefix="auto-chaoxing-ui-test-"),
+                      "SESSION_COOKIE_NAME": "ac_console_preview"}, PreviewClient)
 
     @app.after_request
     def mark_preview(response):

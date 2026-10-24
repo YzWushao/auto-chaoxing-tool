@@ -19,6 +19,8 @@ from werkzeug.exceptions import HTTPException, Unauthorized
 from .chaoxing import ChaoxingClient, PlatformError, QRLogin, SessionExpired
 from .config import API_DEFAULTS, PROVIDERS, ROOT, VERSION, account_defaults, public_api, public_config, validate_api, validate_config
 from .store import Store
+from .location_presets import validate_school, validate_import
+from .maps import MapSearch
 from .tasks import ACTIVE, TaskManager
 
 
@@ -36,6 +38,8 @@ def create_app(config=None, client_factory=ChaoxingClient):
     app.secret_key = store.session_key
     tasks = TaskManager(store)
     qr = QRLogin(client_factory)
+    map_search = MapSearch()
+    app.extensions['map_search'] = map_search
     app.extensions.update(store=store, tasks=tasks, qr=qr)
     activities_cache = {}
     account_locks = defaultdict(threading.RLock)
@@ -67,9 +71,10 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.after_request
     def security_headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "no-referrer"
+        # OSM's tile policy requires a Referer; only the origin crosses sites.
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         if request.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         return response
@@ -169,7 +174,9 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def legal(document):
         documents = {"license": ROOT / "LICENSE", "notice": ROOT / "NOTICE.md",
                      "sources": ROOT / "THIRD_PARTY.md", "sign-mit": ROOT / "licenses" / "chaoxing-sign-cli-MIT.txt",
-                     "jsqr": ROOT / "licenses" / "jsqr-Apache-2.0.txt"}
+                     "jsqr": ROOT / "licenses" / "jsqr-Apache-2.0.txt",
+                     "leaflet": ROOT / "licenses" / "leaflet-BSD-2-Clause.txt",
+                     "coordtransform": ROOT / "licenses" / "coordtransform-MIT.txt"}
         path = documents.get(document)
         if path is None:
             raise KeyError(document)
@@ -262,12 +269,79 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def bootstrap():
         settings = {"api": copy.deepcopy(API_DEFAULTS), **store.settings(g.admin["owner"])}
         return jsonify(admin=public_admin(), accounts=[public_account(a) for a in accounts()],
+                       location_presets=store.location_presets(g.admin['owner']),
                        settings={"api": public_api(settings["api"])},
                        schema={"api": public_api(API_DEFAULTS), "providers": PROVIDERS},
                        jobs=visible_jobs(), events=visible_events(),
                        system={"version": VERSION, "ocr": importlib.util.find_spec("ddddocr") is not None},
                        integrations=[{"name": "NapCat", "state": "planned", "description": "获取签到二维码、辅助登录和状态消息"},
                                      {"name": "第三方推送", "state": "planned", "description": "登录失效、刷课完成、签到结果通知"}])
+
+    @app.post('/api/map/search')
+    def search_map():
+        data = body()
+        if set(data) != {'query'}:
+            raise ValueError('需要提供地点名称')
+        return jsonify(results=map_search.search(data['query']))
+
+    @app.get('/api/location-presets')
+    def location_presets():
+        return jsonify(location_presets=store.location_presets(g.admin['owner']))
+
+    @app.post('/api/location-presets')
+    def location_presets_import():
+        request.max_content_length = 16 * 1024 * 1024
+        data = body()
+        if set(data) - {'config', 'replace'} or not isinstance(data.get('replace', False), bool):
+            raise ValueError('导入格式错误')
+        values = validate_import(data.get('config'))
+        store.import_location_presets(g.admin['owner'], values, data.get('replace', False))
+        return jsonify(location_presets=store.location_presets(g.admin['owner']), schools=[v['school'] for v in values])
+
+    @app.put('/api/location-presets/school')
+    def location_school_save():
+        data=body()
+        if set(data)-{'name','original'} or not isinstance(data.get('name'),str) or not 1 <= len(data['name'].strip()) <= 100:
+            raise ValueError('学校名称需要 1～100 个字符')
+        original=data.get('original')
+        if original is not None and (not isinstance(original,str) or not 1 <= len(original) <= 100):
+            raise ValueError('原学校名称无效')
+        store.save_location_school(g.admin['owner'],data['name'].strip(),original)
+        return jsonify(location_presets=store.location_presets(g.admin['owner']))
+
+    @app.delete('/api/location-presets/school')
+    def location_school_delete():
+        data=body()
+        if set(data) != {'name'} or not isinstance(data['name'],str) or not 1 <= len(data['name']) <= 100:
+            raise ValueError('需要学校名称')
+        store.delete_location_school(g.admin['owner'],data['name'])
+        return jsonify(location_presets=store.location_presets(g.admin['owner']))
+
+    @app.put('/api/location-presets/point')
+    def location_point_save():
+        data = body()
+        if set(data) - {'school','point','original'} or not isinstance(data.get('point'), dict):
+            raise ValueError('点位格式错误')
+        original = data.get('original')
+        if original is not None and (not isinstance(original,dict) or set(original) != {'school','name'} or not all(isinstance(v,str) and v.strip() and len(v)<=100 for v in original.values())):
+            raise ValueError('原点位标识无效')
+        value = validate_school({'school':data.get('school'),'coordinate_system':data['point'].get('coordinate_system'),'points':[data['point']]})
+        store.save_location_point(g.admin['owner'],value['school'],value['points'][0],original)
+        return jsonify(location_presets=store.location_presets(g.admin['owner']))
+
+    @app.delete('/api/location-presets/point')
+    def location_point_delete():
+        data = body()
+        if set(data) != {'school','name'} or not all(isinstance(v,str) and v.strip() and len(v)<=100 for v in data.values()):
+            raise ValueError('需要提供学校和点位名称')
+        store.delete_location_point(g.admin['owner'],data['school'],data['name'])
+        return jsonify(location_presets=store.location_presets(g.admin['owner']))
+
+    @app.get('/api/location-presets/export')
+    def location_presets_export():
+        response = jsonify(version=1, schools=store.location_presets(g.admin['owner']))
+        response.headers['Content-Disposition'] = 'attachment; filename="auto-chaoxing-locations.json"'
+        return response
 
     @app.put("/api/settings")
     def settings_save():

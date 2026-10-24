@@ -1,0 +1,50 @@
+#modal.map-expanded { max-width:1000px; }
+#modal.preset-map-expanded { max-width:1100px; }
+.preset-editor-grid { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(260px,1fr); gap:24px; align-items:start; }
+.preset-editor-fields { min-width:0; }
+.map-place-search { margin-bottom:12px; }
+.map-place-search>label { display:block; font-size:12px; color:#65528e; margin-bottom:8px; }
+.map-search-row { display:flex; gap:8px; }
+.map-search-row input { min-width:0; flex:1; }
+.map-search-results { max-height:140px; overflow:auto; margin-top:8px; }
+.map-search-results button { display:block; width:100%; padding:9px; border:1px solid var(--line); border-radius:5px; background:white; text-align:left; font-size:12px; line-height:1.6; color:#65528e; cursor:pointer; }
+.map-search-results button:hover { background:#f1edfc; }
+.map-search-results button+button { margin-top:5px; }
+.preset-editor-map .sign-map-canvas { height:290px; }
+.preset-editor-map .setting-note { font-size:10px; }
+@media(max-width:760px) { .preset-editor-grid { display:block; } .preset-editor-fields { margin-top:18px; } }
+#modal.map-expanded #sign-fields { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(240px,1fr); gap:0 20px; align-items:start; }
+#modal.map-expanded .location-toolbar { grid-column:1/-1; }
+#modal.map-expanded .sign-map-panel { grid-column:1; grid-row:3/5; }
+#modal.map-expanded .location-system { grid-column:2; grid-row:3; }
+#modal.map-expanded #sign-fields>.field-grid { grid-column:2; grid-row:4; display:flex; flex-direction:column; gap:15px; }
+#modal.map-expanded #sign-fields>.field-grid>.field { width:100%; }
+.location-toolbar { display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+.location-toolbar small { color:var(--muted); font-size:11px; }
+.sign-map-panel { padding:16px; border:1px solid #ddd5f2; border-radius:12px; background:#fcfbff; margin-bottom:20px; }
+.sign-map-controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+.sign-map-canvas { height:260px; width:100%; border:1px solid #dedce8; border-radius:8px; z-index:0; background:#e9edf0; }
+.sign-map-pin { background:transparent; border:0; }
+.sign-map-pin span { display:block; width:26px; height:26px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); background:#7354d8; border:3px solid white; box-shadow:0 2px 8px #30264055; }
+.sign-map-pin span::after { content:''; position:absolute; width:8px; height:8px; background:white; border-radius:50%; top:6px; left:6px; }
+.sign-map-canvas .leaflet-control a { color:#51456b; }
+.sign-map-canvas .leaflet-control-attribution { font-size:10px; }
+.sign-map-readout { font-family:Consolas,monospace; font-size:12px; background:white; border:1px solid var(--line); border-radius:6px; padding:10px; margin-top:12px; overflow-wrap:anywhere; }
+.sign-map-message { margin:8px 0 0; font-size:12px; line-height:1.8; color:#65528e; }
+.sign-map-message.error { color:var(--red); }
+.location-system { margin-bottom:14px; }
+.school-presets { grid-column:1/-1; margin-bottom:18px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#faf9ff; }
+.school-presets strong { font-size:12px; color:#65528e; }
+.school-presets .location-toolbar { margin-bottom:10px; }
+.school-presets .setting-note { margin:8px 0 0; }
+.preset-selectors { display:grid; grid-template-columns:1fr 1fr auto; align-items:end; gap:10px; }
+.preset-selectors .field { margin-bottom:0; }
+.preset-save { margin-top:12px; padding-top:10px; }
+.preset-save summary { margin-bottom:10px; }
+.presets-table-wrap { overflow-x:auto; }
+.presets-table { width:100%; border-collapse:collapse; font-size:12px; }
+.presets-table th,.presets-table td { padding:12px; border-bottom:1px solid var(--line); text-align:left; }
+.presets-table th { color:var(--muted); }
+.presets-table small { display:block; margin-top:6px; color:var(--muted); }
+@media(max-width:640px) { .preset-selectors { grid-template-columns:1fr; } }
+@media(max-width:760px) { #modal.map-expanded #sign-fields { display:block; } .sign-map-panel { padding:10px; } .sign-map-canvas { height:290px; } .sign-map-controls .button { flex:1 1 auto; } }
