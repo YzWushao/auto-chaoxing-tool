@@ -1,0 +1,5 @@
+html,body,#amap { height:100%; width:100%; margin:0; overflow:hidden; }
+body { font:12px/1.8 system-ui,sans-serif; background:#f3f1f8; }
+#map-loading { position:absolute; inset:20px; margin:0; display:grid; place-content:center; text-align:center; color:#65528e; pointer-events:none; }
+#map-loading[hidden] { display:none; }
+.amap-point-pin { width:20px; height:20px; border:3px solid white; border-radius:50% 50% 50% 0; transform:rotate(-45deg); background:#7354d8; box-shadow:0 2px 7px #3335; }

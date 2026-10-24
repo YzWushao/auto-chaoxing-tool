@@ -13,7 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from flask import Flask, g, jsonify, request, send_from_directory, session
+from flask import Flask, Response, g, jsonify, request, send_from_directory, session
 from werkzeug.exceptions import HTTPException, Unauthorized
 
 from .chaoxing import ChaoxingClient, PlatformError, QRLogin, SessionExpired
@@ -21,6 +21,7 @@ from .config import API_DEFAULTS, PROVIDERS, ROOT, VERSION, account_defaults, pu
 from .store import Store
 from .location_presets import validate_school, validate_import
 from .maps import MapSearch
+from .map_config import AMapProxy, public_map_settings, validate_map_settings
 from .tasks import ACTIVE, TaskManager
 
 
@@ -40,6 +41,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
     qr = QRLogin(client_factory)
     map_search = MapSearch()
     app.extensions['map_search'] = map_search
+    amap_proxy = AMapProxy()
     app.extensions.update(store=store, tasks=tasks, qr=qr)
     activities_cache = {}
     account_locks = defaultdict(threading.RLock)
@@ -74,8 +76,11 @@ def create_app(config=None, client_factory=ChaoxingClient):
         # OSM's tile policy requires a Referer; only the origin crosses sites.
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-        if request.path.startswith("/api/"):
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        if request.path == '/map/amap':
+            response.headers['X-Frame-Options']='SAMEORIGIN'
+            response.headers['Content-Security-Policy']="default-src 'self'; script-src 'self' https://webapi.amap.com https://restapi.amap.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.amap.com https://*.autonavi.com; connect-src 'self' https://*.amap.com https://*.autonavi.com; worker-src blob:; font-src 'self' data: https://*.amap.com; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
+        if request.path.startswith(("/api/", '/_AMapService/', '/map/amap')):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -269,6 +274,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def bootstrap():
         settings = {"api": copy.deepcopy(API_DEFAULTS), **store.settings(g.admin["owner"])}
         return jsonify(admin=public_admin(), accounts=[public_account(a) for a in accounts()],
+                       map_settings=public_map_settings(store.map_settings(g.admin['owner'])),
                        location_presets=store.location_presets(g.admin['owner']),
                        settings={"api": public_api(settings["api"])},
                        schema={"api": public_api(API_DEFAULTS), "providers": PROVIDERS},
@@ -276,6 +282,40 @@ def create_app(config=None, client_factory=ChaoxingClient):
                        system={"version": VERSION, "ocr": importlib.util.find_spec("ddddocr") is not None},
                        integrations=[{"name": "NapCat", "state": "planned", "description": "获取签到二维码、辅助登录和状态消息"},
                                      {"name": "第三方推送", "state": "planned", "description": "登录失效、刷课完成、签到结果通知"}])
+
+    @app.get('/api/map/settings')
+    def map_settings():
+        return jsonify(map_settings=public_map_settings(store.map_settings(g.admin['owner'])))
+
+    @app.put('/api/map/settings')
+    def map_settings_save():
+        value=validate_map_settings(body(),store.map_settings(g.admin['owner']))
+        store.set_map_settings(g.admin['owner'],value)
+        return jsonify(map_settings=public_map_settings(value))
+
+    @app.get('/api/map/runtime')
+    def map_runtime():
+        value=store.map_settings(g.admin['owner'])
+        if not value.get('key') or not value.get('security_code'):
+            raise ValueError('尚未配置高德地图，请到“设置 → 地图服务”填写 Web 端（JS API）Key 和安全密钥；现在可使用免费地图')
+        return jsonify(key=value['key'],service_host=request.host_url.rstrip('/')+'/_AMapService')
+
+    @app.get('/map/amap')
+    def amap_frame():
+        if not store.admin_session(session.get('admin_sid')):
+            raise Unauthorized()
+        return send_from_directory(ROOT/'web','amap-frame.html')
+
+    @app.get('/_AMapService/<path:path>')
+    def amap_service(path):
+        admin=store.admin_session(session.get('admin_sid'))
+        if not admin:
+            raise Unauthorized()
+        origin=request.headers.get('Origin')
+        if origin and urlsplit(origin).netloc != request.host:
+            return jsonify(error='请求来源不匹配'),403
+        content,mime=amap_proxy.fetch(path,request.args.to_dict(),store.map_settings(admin['owner']),request.host_url)
+        return Response(content,mimetype=mime)
 
     @app.post('/api/map/search')
     def search_map():

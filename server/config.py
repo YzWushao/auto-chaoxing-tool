@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE = ROOT / "vendor" / "chaoxing"
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 MASK = "••••••••"
 SECRET_FIELDS = {"tokens", "key", "siliconflow_key", "go_authorization"}
 PROVIDERS = ["TikuYanxi", "TikuLike", "TikuAdapter", "AI", "SiliconFlow", "TikuGo", "TikuManual"]

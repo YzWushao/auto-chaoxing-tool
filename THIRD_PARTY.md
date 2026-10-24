@@ -42,3 +42,9 @@
 - `web/sign-map.js` 封装地图选点与本地 WGS84 / GCJ-02 / BD-09 转换；GCJ 反向转换使用迭代逼近，不能据此承诺测量精度。默认 BD-09 沿用签到参考项目 README 的百度拾取流程，不代表平台永远要求该坐标系。
 - 底图由 https://tile.openstreetmap.org 在线提供，数据版权 © OpenStreetMap contributors（[ODbL](https://www.openstreetmap.org/copyright)），不随仓库打包地图数据；显示可点击署名，遵守 [瓦片使用政策](https://operations.osmfoundation.org/policies/tiles/)。仅在用户展开地图时加载视野瓦片，不预抓取、不禁用缓存；跨站 Referer 仅发送站点来源，不含页面路径或查询串。
 - 手动公开地名查询默认使用 [Nominatim Search API](https://nominatim.org/release-docs/latest/api/Search/)，遵守 [使用政策](https://operations.osmfoundation.org/policies/nominatim/)。独立后端请求、标识应用、全局串行限流（间隔 1.1 秒）、同词缓存 24 小时；无自动补全、批量查询、定时查询或逆地理编码。仅供本机小规模点位工具，部署者须负责合规及总流量限制；环境变量可替换 / 关闭服务，见 README。
+
+## 可选地图服务：高德 JS API 2.0（2026-10-24 接入）
+
+- 来源：[高德开放平台](https://lbs.amap.com/api/javascript-api-v2/getting-started)。通过官方 `https://webapi.amap.com/maps` 按需加载 SDK，仓库不复制或再分发其 SDK / 底图，服务不因本项目 GPLv3 许可而变成开源组件；其使用须遵循高德的条款、额度及许可。
+- `web/amap-frame.js` 使用官方 Map、Marker、Circle、Scale、ToolBar、PlaceSearch 接口。官方地图署名保留，不使用未公开瓦片接口、示例共享 Key 或他人 Key。
+- 安全密钥按 [官方代理方式](https://lbs.amap.com/api/javascript-api-v2/guide/abc/jscode) 接入：`server/map_config.py` 只代理固定服务路径并注入服务器密钥，不向网页返回安全密钥。`web/amap-picker.js` 验证同源页面消息的来源和窗口，统一转换 GCJ-02 / WGS84 与现有点位兼容。

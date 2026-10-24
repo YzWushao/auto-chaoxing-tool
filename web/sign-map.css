@@ -1,4 +1,6 @@
 #modal.map-expanded { max-width:1000px; }
+.amap-picker-frame { width:100%; height:100%; display:block; border:0; border-radius:8px; }
+.map-provider-field { margin-bottom:12px; }
 #modal.preset-map-expanded { max-width:1100px; }
 .preset-editor-grid { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(260px,1fr); gap:24px; align-items:start; }
 .preset-editor-fields { min-width:0; }

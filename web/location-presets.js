@@ -42,11 +42,11 @@ function openPresetEditor(si,pi) {
   $('#school-suggestions',fields)?.remove();
   const panel=document.createElement('section'); panel.className='preset-editor-map';
   panel.setAttribute('aria-label','可视化选点');
-  panel.innerHTML=mapSearchHTML('preset')+`<div class="sign-map-controls">${button('使用地图中心','preset-map-center','secondary small')}${button('按已填坐标定位','preset-map-input','secondary small')}</div><div id="preset-map-canvas" class="sign-map-canvas" role="region" aria-label="预设点位选点地图"></div><p id="preset-map-status" class="sign-map-message" role="status">搜索学校 / 地点后，拖动地图或标记精调；地图停止拖动时读取中心坐标。</p><p class="setting-note">底图 © OpenStreetMap contributors。6 位小数是保存精度，实际误差取决于定位、底图和坐标转换。这里仅保存点位，不发起签到。</p>`;
+  panel.innerHTML=mapSearchHTML('preset')+`<div class="sign-map-controls">${button('使用地图中心','preset-map-center','secondary small')}${button('按已填坐标定位','preset-map-input','secondary small')}</div><div id="preset-map-canvas" class="sign-map-canvas" role="region" aria-label="预设点位选点地图"></div><p id="preset-map-status" class="sign-map-message" role="status">搜索学校 / 地点后，拖动地图或标记精调；地图停止拖动时读取中心坐标。</p><p class="setting-note">底图由当前所选地图服务提供，署名保留在图内。6 位小数为保存精度，不代表实地分米精度。这里仅保存点位，不发起签到。</p>`;
   body.prepend(panel);
   $('.setting-note',fields).textContent='搜索只作粗定位；可拖动地图或标记精调。已选地图点会随坐标系切换转换，手填数值不静默转换。';
   try {
-    state.presetMap=SignMap.mount($('#preset-map-canvas'),{L:window.L,onSelect:fillPresetMap,onStatus:presetMapStatus});
+    state.presetMap=mountMapPicker('preset',$('#preset-map-provider').value);
     if(point) centerPresetMap();
   } catch(error) { presetMapStatus(error.message,true); }
 }
@@ -72,7 +72,7 @@ function closePresetMap() {
 }
 
 function mapSearchHTML(context) {
-  return `<div class="map-place-search"><label for="${context}-map-query">搜索学校 / 地点</label><div class="map-search-row"><input id="${context}-map-query" maxlength="120" placeholder="输入学校名或公开地名，按 Enter 搜索" autocomplete="off">${button('搜索','map-search','secondary small','',`data-context="${context}"`)}</div><div id="${context}-map-results" class="map-search-results"></div><p id="${context}-map-search-status" class="setting-note" role="status">仅点击搜索时将关键词发送给 Nominatim；不发送超星凭据。只搜公开地名，勿输入私人地址。<a href="https://operations.osmfoundation.org/policies/nominatim/" target="_blank" rel="noopener noreferrer">使用政策</a>：限流、缓存，无自动补全；无结果时可拖动地图。</p></div>`;
+  return mapProviderHTML(context)+`<div class="map-place-search"><label for="${context}-map-query">搜索学校 / 地点</label><div class="map-search-row"><input id="${context}-map-query" maxlength="120" placeholder="输入学校名或公开地名，按 Enter 搜索" autocomplete="off">${button('搜索','map-search','secondary small','',`data-context="${context}"`)}</div><div id="${context}-map-results" class="map-search-results"></div><p id="${context}-map-search-status" class="setting-note" role="status">仅手动搜索才发送公开关键词，不发送超星凭据。免费地图使用 Nominatim（<a href="https://operations.osmfoundation.org/policies/nominatim/" target="_blank" rel="noopener noreferrer">限流与使用政策</a>），高德使用自身搜索；勿输入私人地址。</p></div>`;
 }
 function stopMapSearch(context) {
   state[context+'MapSearchAbort']?.abort(); state[context+'MapSearchAbort']=null; state[context+'MapResults']=[];
@@ -86,18 +86,18 @@ async function runMapSearch(context) {
   result.replaceChildren();
   try {
     status.textContent='正在搜索公开地名…';
-    const data=await api('/map/search','POST',{query:input.value.trim()},{signal:controller.signal});
+    const data=map.provider==='amap'?{results:(await map.search(input.value.trim())).map(p=>({name:p.name,longitude:p.lng,latitude:p.lat}))}:await api('/map/search','POST',{query:input.value.trim()},{signal:controller.signal});
     if(!valid()) return;
     state[context+'MapResults']=data.results;
     result.innerHTML=data.results.map((p,i)=>`<button type="button" data-action="map-search-result" data-context="${context}" data-index="${i}">${esc(p.name)}</button>`).join('');
-    status.textContent=data.results.length?'© OpenStreetMap contributors · 选择结果跳到大致位置，再拖动地图精调。':'没有匹配结果；可增加城市名称、缩短学校名，或直接拖动地图。';
+    status.textContent=data.results.length?(map.provider==='amap'?'高德地图':'© OpenStreetMap contributors')+' · 选择结果跳到大致位置，再拖动地图精调。':'没有匹配结果；可增加城市名称、缩短学校名，或直接拖动地图。';
   } catch(error) { if(valid() && error.name!=='AbortError') status.textContent=error.message; }
 }
 function chooseMapSearch(context,index) {
   const value=state[context+'MapResults']?.[index]; if(!value) return;
   state[context+'Map']?.center(SignMap.point(value.longitude,value.latitude),15);
   $(`#${context}-map-results`).replaceChildren();
-  $(`#${context}-map-search-status`).textContent='已跳转至搜索结果附近（© OpenStreetMap contributors）。拖动地图或标记精调后再保存。';
+  $(`#${context}-map-search-status`).textContent='已跳转至搜索结果附近（'+(state[context+'Map']?.provider==='amap'?'高德地图':'© OpenStreetMap contributors')+'）。拖动地图或标记精调后再保存。';
 }
 function presetsUpdated(values,school) {
   state.location_presets=values;

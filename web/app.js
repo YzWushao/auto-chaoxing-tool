@@ -119,7 +119,7 @@ async function bootstrap() {
 
 function resetConsole() {
   state.authenticated=false; state.admin=null; closeAccountLogin();
-  state.accounts=[]; state.jobs=[]; state.events=[]; state.location_presets=[]; state.active=''; state.selection={}; state.courses={}; state.activities={}; state.logJob=null; state.logAfter=0;
+  state.accounts=[]; state.jobs=[]; state.events=[]; state.location_presets=[]; state.map_settings=null; state.active=''; state.selection={}; state.courses={}; state.activities={}; state.logJob=null; state.logAfter=0;
   $('#page-content').replaceChildren();
 }
 
@@ -233,7 +233,7 @@ function configPage() {
 }
 
 function settingsPage() {
-  return heading('设置','管理管理员凭据、预设点位、全局 API 配置与服务信息。')+presetsSettingsEntry()+adminPanel()+
+  return heading('设置','管理管理员凭据、预设点位、地图服务与全局 API 配置。')+presetsSettingsEntry()+mapSettingsPanel()+adminPanel()+
     `<div class="settings-grid"><form id="global-api-form" class="panel"><div class="panel-header"><div><h3>全局 API 配置</h3><p class="subheading">所有开启“使用全局 API 配置”的用户将自动继承</p></div><span class="badge purple">默认配置</span></div><div class="panel-body">${apiFields(state.settings.api)}</div><div class="panel-actions"><small>密钥加密保存，仅返回脱敏信息</small><button type="submit" class="button primary">保存全局配置</button></div></form><aside><section class="panel"><div class="panel-header"><h3>扩展计划</h3><span class="badge">TODO</span></div><div class="panel-body">${state.integrations.map(i=>`<div class="integration"><span class="integration-icon">${icon('link')}</span><div><h3>${esc(i.name)} <span class="badge">待接入</span></h3><p>${esc(i.description)}</p></div></div>`).join('')}</div></section><section class="panel"><div class="panel-header"><h3>服务信息</h3></div><div class="panel-body"><div class="setting-row"><span>当前版本</span><b>${esc(state.system.version)}</b></div><div class="setting-row"><span>会话隔离</span><b>按用户隔离</b></div><div class="setting-row"><span>凭据存储</span><b>本地加密</b></div><div class="setting-row"><span>OCR 扩展</span><b>${state.system.ocr?'已安装':'未安装（可选）'}</b></div><p class="setting-note">第三方推送与 NapCat 当前仅列入计划。登录失效、任务结果等事件已经在“最近动态”中记录。</p></div></section></aside></div>${creditsPanel()}`;
 }
 
@@ -336,9 +336,10 @@ function toggleSignMap() {
   const panel=$('#sign-map-panel');
   if(state.signMap) { closeSignMap(); panel.classList.add('hidden'); $('[data-action="sign-map-toggle"]').textContent='地图拾取坐标'; return; }
   panel.classList.remove('hidden'); $('#modal').classList.add('map-expanded');
+  $('#sign-map-panel > .setting-note').textContent='底图和搜索由所选地图服务提供，会向对应服务请求视野或关键词，不发送超星凭据。6 位小数为保存精度，不代表实地分米精度；请核对本人实际位置。';
   if(!$('#sign-map-query')) panel.insertAdjacentHTML('afterbegin',mapSearchHTML('sign'));
   try {
-    state.signMap=SignMap.mount($('#sign-map-canvas'),{L:window.L,onSelect:fillSignMap,onStatus:signMapStatus});
+    state.signMap=mountMapPicker('sign',$('#sign-map-provider').value);
     $('[data-action="sign-map-toggle"]').textContent='收起地图';
     if($('#sign-longitude').value && $('#sign-latitude').value) centerSignMap();
   } catch(error) { closeSignMap(); signMapStatus(error.message,true); }
@@ -464,6 +465,7 @@ document.addEventListener('change',event=>{
   if(event.target.id==='school-presets-file') importLocationPresets(event.target.files[0]);
   if(event.target.id==='preset-school') presetSchoolChanged();
   if(event.target.id==='edit-point-system' && state.presetMapPoint) fillPresetMap(state.presetMapPoint);
+  if(event.target.dataset.mapProvider) switchMapProvider(event.target.dataset.mapProvider,event.target.value);
 });
 document.addEventListener('input',event=>{
   if(event.target.id==='course-search') $('#course-list').innerHTML=coursesHTML(event.target.value);
@@ -473,9 +475,10 @@ document.addEventListener('input',event=>{
 document.addEventListener('keydown',event=>{ if(event.key==='Enter' && ['sign-map-query','preset-map-query'].includes(event.target.id)) { event.preventDefault(); const context=event.target.id.split('-')[0]; $(`[data-action="map-search"][data-context="${context}"]`).click(); } });
 
 document.addEventListener('submit',async event=>{
-  const form=event.target; if(!['global-api-form','study-config-form','sign-form','job-input-form','admin-settings-form','preset-edit-form','school-edit-form'].includes(form.id)) return;
+  const form=event.target; if(!['global-api-form','study-config-form','sign-form','job-input-form','admin-settings-form','preset-edit-form','school-edit-form','map-settings-form'].includes(form.id)) return;
   event.preventDefault(); const accountId=state.active;
   await busy($('button[type="submit"]',form), async()=>{
+    if(form.id==='map-settings-form') { try {const data=await api('/map/settings','PUT',Object.fromEntries(new FormData(form)));state.map_settings=data.map_settings;render();toast('地图设置已保存，重新打开选点窗口生效');} catch(error) {$('#map-settings-error').textContent=error.message;throw error;} }
     if(form.id==='school-edit-form') { try { await saveSchoolEditor(form); } catch(error) { $('#school-edit-error').textContent=error.message; throw error; } }
     if(form.id==='preset-edit-form') { try { await savePresetEditor(form); } catch(error) { $('#preset-edit-error').textContent=error.message; throw error; } }
     if(form.id==='admin-settings-form') {

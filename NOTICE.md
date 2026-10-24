@@ -33,5 +33,6 @@
 - [Leaflet](https://github.com/Leaflet/Leaflet) 1.9.4：BSD-2-Clause，原始发行文件未修改，完整许可证见 `licenses/leaflet-BSD-2-Clause.txt`。
 - [coordtransform](https://github.com/wandergis/coordtransform) 2.1.2：MIT，Copyright (c) 2015 记忆的残骸；原始发行文件未修改，完整许可证见 `licenses/coordtransform-MIT.txt`。
 - 在线底图：© [OpenStreetMap contributors](https://www.openstreetmap.org/copyright)，数据遵循 ODbL；地图数据不随源码分发，遵守 OSM 瓦片服务政策。
+- 可选高德地图使用官方 JS API 2.0 在线服务，SDK / 地图数据不随源码分发，其品牌、版权和使用条款归高德及相关权利人。默认免费地图不需要高德 Key。
 
 更详细的文件级来源和修改清单见 `THIRD_PARTY.md`。软件按原样提供，不附带担保，具体条款以随附的许可证为准。网页“设置 → 开源来源与致谢”提供上述项目和许可正文的入口。

@@ -49,6 +49,7 @@ class Store:
                     updated_at TEXT NOT NULL, UNIQUE(owner, uid)
                 );
                 CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS map_settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS location_presets (
                     owner TEXT NOT NULL, school TEXT NOT NULL, value TEXT NOT NULL,
                     PRIMARY KEY(owner, school)
@@ -227,6 +228,15 @@ class Store:
     def set_settings(self, owner, value):
         with self.connect() as db:
             db.execute("INSERT INTO settings VALUES (?,?) ON CONFLICT(owner) DO UPDATE SET value=excluded.value", (owner, self.seal(value)))
+
+    def map_settings(self, owner):
+        with self.connect() as db:
+            row=db.execute('SELECT value FROM map_settings WHERE owner=?',(owner,)).fetchone()
+            return self.unseal(row['value']) if row else {'provider':'osm','key':'','security_code':''}
+
+    def set_map_settings(self, owner, value):
+        with self.connect() as db:
+            db.execute('INSERT INTO map_settings VALUES (?,?) ON CONFLICT(owner) DO UPDATE SET value=excluded.value',(owner,self.seal(value)))
 
     def event(self, owner, account_id, kind, message):
         with self.connect() as db:
