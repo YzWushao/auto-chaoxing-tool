@@ -6,7 +6,7 @@ from collections import deque
 
 import requests
 
-from .config import MASK
+from .config import MASK, VERSION
 
 DEFAULT_MAP = {'provider':'osm', 'key':'', 'security_code':''}
 
@@ -71,7 +71,7 @@ class AMapProxy:
         params.update(key=settings['key'],jscode=settings['security_code'])
         try:
             response=requests.get(self.PATHS[path],params=params,timeout=(4,12),allow_redirects=False,
-                                  headers={'User-Agent':'AutoChaoxingTool/0.2.3','Accept':'application/json, application/javascript', 'Referer':referer})
+                                  headers={'User-Agent':f'AutoChaoxingTool/{VERSION}','Accept':'application/json, application/javascript', 'Referer':referer})
             if response.status_code != 200 or len(response.content)>2*1024*1024:
                 raise ValueError('upstream response')
             mime='application/javascript' if callback else 'application/json'

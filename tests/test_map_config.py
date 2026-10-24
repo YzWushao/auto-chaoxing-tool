@@ -88,11 +88,15 @@ def test_parent_csp_unchanged_and_sdk_permissions_scoped_to_frame(browser):
     browser.admin_login()
     parent=browser.client.get('/').headers['Content-Security-Policy']
     assert "script-src 'self';" in parent and "style-src 'self';" in parent
-    assert 'unsafe-inline' not in parent and 'webapi.amap.com' not in parent
+    assert 'unsafe-inline' not in parent and 'unsafe-eval' not in parent and 'webapi.amap.com' not in parent
+    assert 'jsapi-service.amap.com' not in parent
     assert "frame-src 'self'" in parent
     child=browser.client.get('/map/amap')
     assert child.status_code == 200 and child.headers['X-Frame-Options']=='SAMEORIGIN'
     assert 'https://webapi.amap.com' in child.headers['Content-Security-Policy']
+    assert 'https://jsapi-service.amap.com' in child.headers['Content-Security-Policy']
+    assert "script-src 'self' 'unsafe-eval'" in child.headers['Content-Security-Policy']
+    assert "script-src 'self' 'unsafe-inline'" not in child.headers['Content-Security-Policy']
     assert "frame-ancestors 'self'" in child.headers['Content-Security-Policy']
     assert child.headers['Cache-Control']=='no-store'
 
@@ -129,28 +133,62 @@ assert.ok(Math.abs(selected[0].lng-116.404)<1e-9);
     subprocess.run([node,'-e',program],cwd=ROOT,text=True,capture_output=True,check=True,timeout=15)
 
 
-def test_official_sdk_adapter_with_offline_fake_sdk():
+@pytest.mark.parametrize('scenario',['ready','missing','plugin-timeout','plugin-dispose','sdk-timeout','sdk-dispose'])
+def test_official_sdk_adapter_with_async_plugins(scenario):
     node=shutil.which('node')
     if not node:
         pytest.skip('Node.js is required for SDK adapter tests')
     program=r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
-let map,marker,events={},messages=[],scriptURL='';
+const scenario=process.argv[1],timers=new global.Map();let timerId=0;
+let map,marker,events={},messages=[],scriptURL='',sdkReady,pluginReady,pluginNames;
+const tick=()=>new Promise(r=>setImmediate(r));
+const expire=ms=>{const entry=[...timers.values()].find(t=>t.ms===ms);assert.ok(entry,'expected timeout');entry.fn();};
 const parent={postMessage:data=>messages.push(data)}, loading={textContent:'loading',hidden:false};
 class LngLat {constructor(lng,lat){this.lng=lng;this.lat=lat;}getLng(){return this.lng;}getLat(){return this.lat;}}
 class Map {constructor(id,opts){this.opts=opts;this.events={};this.center=new LngLat(...opts.center);map=this;}addControl(){}on(n,fn){this.events[n]=fn;}getCenter(){return this.center;}setZoomAndCenter(z,p){this.center=p;}destroy(){this.destroyed=true;}}
 class Marker {constructor(opts){this.p=opts.position;this.events={};marker=this;}on(n,fn){this.events[n]=fn;}setPosition(p){this.p=p;}getPosition(){return this.p;}}
-const context={console,Promise,setTimeout,clearTimeout,parent,location:{origin:'http://localhost'},
+const context={console,Promise,setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),parent,location:{origin:'http://localhost'},
   fetch:async()=>({ok:true,json:async()=>({key:'fake-key',service_host:'http://localhost/_AMapService'})}),
-  AMap:{Map,Marker,LngLat,Scale:class{},ToolBar:class{},Circle:class{setMap(){}},PlaceSearch:class{search(q,fn){fn('complete',{poiList:{pois:[{name:'School',location:new LngLat(116.4,39.9)}]}});}}},
-  document:{querySelector:()=>loading,createElement:()=>({remove(){}}),head:{append(script){scriptURL=script.src;context.__autoChaoxingAMapReady();}}},
+  AMap:{Map,Marker,LngLat,Circle:class{setMap(){}},plugin(names,ready){pluginNames=Array.from(names);pluginReady=ready;}},
+  document:{querySelector:()=>loading,createElement:()=>({remove(){}}),head:{append(script){scriptURL=script.src;sdkReady=context.__autoChaoxingAMapReady;}}},
   addEventListener:(n,fn)=>events[n]=fn};
 context.window=context;
 vm.createContext(context);vm.runInContext(fs.readFileSync('web/amap-frame.js','utf8'),context);
 (async()=>{
- await new Promise(r=>setImmediate(r));
+ await tick();
  assert.ok(scriptURL.startsWith('https://webapi.amap.com/maps?v=2.0&key='));assert.ok(!scriptURL.includes('securityJsCode'));
- assert.equal(context._AMapSecurityConfig.serviceHost,'http://localhost/_AMapService');assert.equal(map.opts.jogEnable,false);
+ assert.equal(context._AMapSecurityConfig.serviceHost,'http://localhost/_AMapService');
+ assert.equal(map,undefined);assert.equal(messages.length,0);
+ if(scenario==='sdk-timeout'||scenario==='sdk-dispose') {
+   if(scenario==='sdk-timeout') expire(18000);else events.pagehide();
+   await tick();sdkReady();await tick();
+   assert.equal(map,undefined);assert.equal(pluginReady,undefined);assert.equal(timers.size,0);
+   assert.equal(context.__autoChaoxingAMapReady,undefined);
+   if(scenario==='sdk-timeout') {assert.equal(messages.at(-1).type,'failed');assert.match(loading.textContent,/SDK 加载超时/);}
+   else assert.equal(messages.length,0);
+   return;
+ }
+ sdkReady();await tick();
+ assert.deepEqual(pluginNames,['AMap.Scale','AMap.ToolBar','AMap.PlaceSearch']);
+ assert.equal(context.AMap.Scale,undefined);assert.equal(map,undefined);assert.equal(messages.length,0);
+ if(scenario==='missing') {
+   pluginReady();await tick();assert.equal(map,undefined);
+   assert.equal(messages.at(-1).type,'failed');assert.match(loading.textContent,/插件未能加载/);assert.equal(timers.size,0);return;
+ }
+ if(scenario==='plugin-timeout') expire(10000);
+ if(scenario==='plugin-dispose') events.pagehide();
+ // Real plugins become available asynchronously, not at the SDK callback.
+ Object.assign(context.AMap,{Scale:class{},ToolBar:class{},PlaceSearch:class{search(q,fn){fn('complete',{poiList:{pois:[{name:'School',location:new LngLat(116.4,39.9)}]}});}}});
+ pluginReady();await tick();
+ assert.equal(timers.size,0);
+ if(scenario==='plugin-timeout'||scenario==='plugin-dispose') {
+   assert.equal(map,undefined);
+   if(scenario==='plugin-timeout') {assert.equal(messages.at(-1).type,'failed');assert.match(loading.textContent,/插件加载超时/);}
+   else assert.equal(messages.length,0);
+   return;
+ }
+ assert.equal(map.opts.jogEnable,false);
  assert.equal(messages.at(-1).type,'ready'); map.events.complete(); assert.equal(loading.hidden,true);
  const send=data=>events.message({origin:'http://localhost',source:parent,data:{channel:'auto-chaoxing-amap',...data}});
  send({type:'center',point:{lng:116.4,lat:39.9},zoom:17});assert.equal(messages.at(-1).point.lng,116.4);
@@ -160,4 +198,5 @@ vm.createContext(context);vm.runInContext(fs.readFileSync('web/amap-frame.js','u
  events.pagehide();assert.equal(map.destroyed,true);
 })().catch(e=>{console.error(e);process.exitCode=1;});
 '''
-    subprocess.run([node,'-e',program],cwd=ROOT,text=True,capture_output=True,check=True,timeout=15)
+    result=subprocess.run([node,'-e',program,scenario],cwd=ROOT,text=True,capture_output=True,timeout=15)
+    assert result.returncode == 0,result.stderr

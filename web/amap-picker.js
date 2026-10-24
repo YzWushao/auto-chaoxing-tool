@@ -9,7 +9,7 @@
     const readiness=new Promise((resolve,reject)=>{resolveReady=resolve;rejectReady=reject;}); readiness.catch(()=>{});
     const abort=()=>new DOMException('地图已关闭','AbortError');
     const send=data=>{if(!disposed) frame.contentWindow?.postMessage({channel:'auto-chaoxing-amap',...data},location.origin);};
-    const timer=setTimeout(()=>fail('高德地图加载超时，可切回免费地图重试'),22000);
+    const timer=setTimeout(()=>fail('高德地图加载超时，可切回免费地图重试'),32000);
     function fail(message) {clearTimeout(timer);rejectReady(new Error(message));onStatus(message,true);}
     function receive(event) {
       if(disposed || event.source!==frame.contentWindow || event.origin!==location.origin || event.data?.channel!=='auto-chaoxing-amap') return;

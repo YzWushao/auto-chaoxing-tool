@@ -1,9 +1,23 @@
 'use strict';
 // Official AMap JS API. Its security code is injected only by our server proxy.
 (async()=>{
-  const send=data=>parent.postMessage({channel:'auto-chaoxing-amap',...data},location.origin);
+  const send=data=>{if(!disposed) parent.postMessage({channel:'auto-chaoxing-amap',...data},location.origin);};
   const loading=document.querySelector('#map-loading');
-  let map,marker,circle,search,disposed=false;
+  let map,marker,circle,search,cancelLoad,disposed=false;
+  window.addEventListener('pagehide',()=>{disposed=true;cancelLoad?.();map?.destroy();});
+  function waitForReady(start,timeout,message) {
+    return new Promise((resolve,reject)=>{
+      let settled=false;
+      const finish=error=>{
+        if(settled) return;
+        settled=true;clearTimeout(timer);cancelLoad=null;
+        if(error) reject(error);else resolve();
+      };
+      const timer=setTimeout(()=>finish(new Error(message)),timeout);
+      cancelLoad=()=>finish(new Error('地图已关闭'));
+      try {start(finish);} catch(error) {finish(error);}
+    });
+  }
   const coordinates=p=>({lng:Number(p.getLng()),lat:Number(p.getLat())});
   function select(p,accuracy) {
     if(disposed) return;
@@ -17,16 +31,29 @@
   }
   try {
     const response=await fetch('/api/map/runtime',{credentials:'same-origin'}), config=await response.json();
+    if(disposed) return;
     if(!response.ok) throw new Error(config.error||'高德配置无法读取');
     window._AMapSecurityConfig={serviceHost:config.service_host};
-    await new Promise((resolve,reject)=>{
-      const script=document.createElement('script');
-      const timer=setTimeout(()=>{script.remove();delete window.__autoChaoxingAMapReady;reject(new Error('高德 SDK 加载超时，请检查网络；可切回免费地图'));},18000);
-      window.__autoChaoxingAMapReady=()=>{clearTimeout(timer);delete window.__autoChaoxingAMapReady;resolve();};
-      script.onerror=()=>{clearTimeout(timer);delete window.__autoChaoxingAMapReady;reject(new Error('高德 SDK 加载失败，请检查网络和 Key'));};
-      script.src='https://webapi.amap.com/maps?v=2.0&key='+encodeURIComponent(config.key)+'&callback=__autoChaoxingAMapReady&plugin=AMap.Scale,AMap.ToolBar,AMap.PlaceSearch';
-      document.head.append(script);
-    });
+    const script=document.createElement('script');
+    try {
+      await waitForReady(done=>{
+        window.__autoChaoxingAMapReady=()=>done();
+        script.onerror=()=>done(new Error('高德 SDK 加载失败，请检查网络和 Key'));
+        script.src='https://webapi.amap.com/maps?v=2.0&key='+encodeURIComponent(config.key)+'&callback=__autoChaoxingAMapReady';
+        document.head.append(script);
+      },18000,'高德 SDK 加载超时，请检查网络；可切回免费地图');
+    } finally {script.onerror=null;script.remove();delete window.__autoChaoxingAMapReady;}
+    if(disposed) return;
+    if(typeof window.AMap?.plugin!=='function') throw new Error('高德 SDK 初始化失败，请关闭地图后重试');
+    // The SDK callback does not guarantee that optional plugin constructors exist.
+    // Only use them inside/after AMap.plugin's own completion callback.
+    loading.textContent='正在加载高德选点和搜索插件…';
+    const plugins=['AMap.Scale','AMap.ToolBar','AMap.PlaceSearch'];
+    await waitForReady(done=>AMap.plugin(plugins,()=>{
+      if(plugins.some(name=>typeof AMap[name.split('.')[1]]!=='function')) {
+        done(new Error('高德地图插件未能加载，请检查网络后重试，或切回免费地图'));
+      } else done();
+    }),10000,'高德地图插件加载超时，请检查网络后重试，或切回免费地图');
     if(disposed) return;
     map=new AMap.Map('amap',{viewMode:'2D',center:[105,35],zoom:4,zooms:[2,20],resizeEnable:true,jogEnable:false,animateEnable:false,rotateEnable:false});
     map.addControl(new AMap.Scale()); map.addControl(new AMap.ToolBar());
@@ -56,6 +83,9 @@
       } catch(error) {send({type:data.type==='search'?'results':'status',id:data.id,error:error.message||'高德地图操作失败'});}
     });
     send({type:'ready'});
-  } catch(error) {loading.textContent=error.message;send({type:'failed',message:error.message});}
-  window.addEventListener('pagehide',()=>{disposed=true;map?.destroy();});
+  } catch(error) {
+    if(disposed) return;
+    map?.destroy();loading.hidden=false;loading.textContent=error.message;
+    send({type:'failed',message:error.message});
+  }
 })();

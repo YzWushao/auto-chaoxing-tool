@@ -79,7 +79,9 @@ def create_app(config=None, client_factory=ChaoxingClient):
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         if request.path == '/map/amap':
             response.headers['X-Frame-Options']='SAMEORIGIN'
-            response.headers['Content-Security-Policy']="default-src 'self'; script-src 'self' https://webapi.amap.com https://restapi.amap.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.amap.com https://*.autonavi.com; connect-src 'self' https://*.amap.com https://*.autonavi.com; worker-src blob:; font-src 'self' data: https://*.amap.com; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
+            # AMap's official plugin loader evaluates its downloaded modules.
+            # This compatibility exception belongs ONLY to the optional map page.
+            response.headers['Content-Security-Policy']="default-src 'self'; script-src 'self' 'unsafe-eval' https://webapi.amap.com https://restapi.amap.com https://jsapi-service.amap.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.amap.com https://*.autonavi.com; connect-src 'self' https://*.amap.com https://*.autonavi.com; worker-src blob:; font-src 'self' data: https://*.amap.com; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
         if request.path.startswith(("/api/", '/_AMapService/', '/map/amap')):
             response.headers["Cache-Control"] = "no-store"
         return response
