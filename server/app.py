@@ -25,6 +25,7 @@ from .map_config import AMapProxy, public_map_settings, validate_map_settings
 from .tasks import ACTIVE, TaskManager
 from .signing import SignService
 from .preferences import account_label, validate_preferences
+from .camera_sign import CameraSignService, CameraRateLimit
 from .napcat import NapCatManager, public_settings as public_napcat_settings, validate_settings as validate_napcat_settings, test_connection as test_napcat_connection
 
 
@@ -78,7 +79,8 @@ def create_app(config=None, client_factory=ChaoxingClient):
         # OSM's tile policy requires a Referer; only the origin crosses sites.
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; media-src 'self' blob:; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        response.headers['Permissions-Policy'] = 'camera=(self), microphone=()'
         if request.path == '/map/amap':
             response.headers['X-Frame-Options']='SAMEORIGIN'
             # AMap's official plugin loader evaluates its downloaded modules.
@@ -166,6 +168,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
             raise
 
     signing = SignService(store, use_client, account_locks)
+    camera_sign = CameraSignService(signing)
     napcat = NapCatManager(store, signing)
     app.extensions.update(signing=signing, napcat=napcat)
 
@@ -464,6 +467,16 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def sign(account_id):
         value, supplied = account(account_id), body()
         return jsonify(signing.submit(value['owner'], account_id, supplied))
+
+    @app.post('/api/accounts/<account_id>/camera-sign')
+    def camera_submit(account_id):
+        value, supplied = account(account_id), body()
+        if set(supplied) != {'qr'}:
+            raise ValueError('摄像头签到只接收已解码的二维码内容')
+        try:
+            return jsonify(camera_sign.submit(value['owner'], account_id, supplied['qr']))
+        except CameraRateLimit as error:
+            return jsonify(error=str(error), code='rate_limited'), 429
 
     @app.post("/api/accounts/<account_id>/study")
     def study(account_id):

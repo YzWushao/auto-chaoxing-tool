@@ -60,3 +60,9 @@
 
 - 图片流按 NapCat 的[文件处理文档](https://napneko.github.io/develop/file)实现 `download_file_stream`，只使用已收到图片的文件标识、分片大小与 echo；独立实现有界分片重组与 PNG 归一化，不复制 NapCat 实现。
 - 群组接口参考环信的[群组 REST 文档](https://doc.easemob.com/document/server-side/group_obtain_detail.html)；旧服务停用及消息接口迁移参考协议维护者的[公开说明](https://github.com/aquamarine5/ChaoxingSignFaker/issues/188)。`server/group_sign.py` 是根据请求字段与实测响应独立编写的 Python 适配，只提取签到附件 JSON；没有复制该项目的 AGPL 实现、protobuf 定义或 Android 组件，项目许可不因此改写。
+
+## 摄像头连续扫码交互参考（2026-10-27）
+
+- 参考项目：[aquamarine5/ChaoxingSignFaker](https://github.com/aquamarine5/ChaoxingSignFaker)，查阅版本 `0346adf72dde1d3fea5600232c575ad2211641c3`，原项目按 AGPL-3.0 发布。参考范围为摄像头连续识别、多账户处理交互以及 URL / `SIGNIN:` 二维码字段约定，感谢作者与贡献者。
+- 网页实现 `web/camera-sign.js`、队列 `web/camera-queue.js` 和请求适配 `server/camera_sign.py` 独立编写；沿用已有 jsQR 发行文件及其 Apache-2.0 声明，没有复制原项目的 Kotlin、Android 组件、图片资源或签到实现，不随项目捆绑该 APK。
+- 浏览器摄像头采用标准 [MediaDevices.getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)，只请求视频；画面在浏览器 Worker 内处理，不上传第三方。
