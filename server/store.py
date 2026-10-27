@@ -50,6 +50,11 @@ class Store:
                 );
                 CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS map_settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS napcat_settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS napcat_messages (
+                    bot TEXT NOT NULL, qq TEXT NOT NULL, message_id TEXT NOT NULL, received_at REAL NOT NULL,
+                    PRIMARY KEY(bot, qq, message_id)
+                );
                 CREATE TABLE IF NOT EXISTS location_presets (
                     owner TEXT NOT NULL, school TEXT NOT NULL, value TEXT NOT NULL,
                     PRIMARY KEY(owner, school)
@@ -237,6 +242,25 @@ class Store:
     def set_map_settings(self, owner, value):
         with self.connect() as db:
             db.execute('INSERT INTO map_settings VALUES (?,?) ON CONFLICT(owner) DO UPDATE SET value=excluded.value',(owner,self.seal(value)))
+
+    def administrator(self):
+        with self.connect() as db:
+            return self._public_admin(db.execute('SELECT * FROM administrators WHERE id=1').fetchone())
+
+    def napcat_settings(self, owner):
+        with self.connect() as db:
+            row = db.execute('SELECT value FROM napcat_settings WHERE owner=?', (owner,)).fetchone()
+            return self.unseal(row['value']) if row else {'enabled': False, 'ws_url': '', 'token': '', 'allowed_qqs': []}
+
+    def set_napcat_settings(self, owner, value):
+        with self.connect() as db:
+            db.execute('INSERT INTO napcat_settings VALUES (?,?) ON CONFLICT(owner) DO UPDATE SET value=excluded.value', (owner, self.seal(value)))
+
+    def claim_napcat_message(self, bot, qq, message_id):
+        with self.connect() as db:
+            stamp = time.time()
+            db.execute('DELETE FROM napcat_messages WHERE received_at < ?', (stamp - 86400,))
+            return bool(db.execute('INSERT OR IGNORE INTO napcat_messages VALUES (?,?,?,?)', (bot, qq, message_id, stamp)).rowcount)
 
     def event(self, owner, account_id, kind, message):
         with self.connect() as db:

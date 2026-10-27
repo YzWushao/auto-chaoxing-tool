@@ -23,6 +23,8 @@ from .location_presets import validate_school, validate_import
 from .maps import MapSearch
 from .map_config import AMapProxy, public_map_settings, validate_map_settings
 from .tasks import ACTIVE, TaskManager
+from .signing import SignService
+from .napcat import NapCatManager, public_settings as public_napcat_settings, validate_settings as validate_napcat_settings, test_connection as test_napcat_connection
 
 
 def create_app(config=None, client_factory=ChaoxingClient):
@@ -43,7 +45,6 @@ def create_app(config=None, client_factory=ChaoxingClient):
     app.extensions['map_search'] = map_search
     amap_proxy = AMapProxy()
     app.extensions.update(store=store, tasks=tasks, qr=qr)
-    activities_cache = {}
     account_locks = defaultdict(threading.RLock)
     rate = defaultdict(deque)
     rate_lock = threading.Lock()
@@ -162,6 +163,10 @@ def create_app(config=None, client_factory=ChaoxingClient):
                 store.event(value["owner"], value["id"], "login_expired", f"{value['name']} 登录已失效，请重新登录")
             raise
 
+    signing = SignService(store, use_client, account_locks)
+    napcat = NapCatManager(store, signing)
+    app.extensions.update(signing=signing, napcat=napcat)
+
     def finish_login(client, profile, target_id=None):
         if not store.admin_session(session.get("admin_sid")):
             raise Unauthorized("管理员会话已失效，请重新登录")
@@ -277,13 +282,35 @@ def create_app(config=None, client_factory=ChaoxingClient):
         settings = {"api": copy.deepcopy(API_DEFAULTS), **store.settings(g.admin["owner"])}
         return jsonify(admin=public_admin(), accounts=[public_account(a) for a in accounts()],
                        map_settings=public_map_settings(store.map_settings(g.admin['owner'])),
+                       napcat_settings=public_napcat_settings(store.napcat_settings(g.admin['owner'])),
+                       napcat_status=napcat.status(),
                        location_presets=store.location_presets(g.admin['owner']),
                        settings={"api": public_api(settings["api"])},
                        schema={"api": public_api(API_DEFAULTS), "providers": PROVIDERS},
                        jobs=visible_jobs(), events=visible_events(),
                        system={"version": VERSION, "ocr": importlib.util.find_spec("ddddocr") is not None},
-                       integrations=[{"name": "NapCat", "state": "planned", "description": "获取签到二维码、辅助登录和状态消息"},
-                                     {"name": "第三方推送", "state": "planned", "description": "登录失效、刷课完成、签到结果通知"}])
+                       integrations=[{"name": "第三方推送", "state": "planned", "description": "登录失效、刷课完成、签到结果通知"}])
+
+    @app.get('/api/napcat/settings')
+    def napcat_settings():
+        return jsonify(napcat_settings=public_napcat_settings(store.napcat_settings(g.admin['owner'])), napcat_status=napcat.status())
+
+    @app.put('/api/napcat/settings')
+    def napcat_save():
+        value = validate_napcat_settings(body(), store.napcat_settings(g.admin['owner']))
+        napcat.stop()
+        store.set_napcat_settings(g.admin['owner'], value)
+        if not app.config.get('TESTING'):
+            napcat.start()
+        return jsonify(napcat_settings=public_napcat_settings(value), napcat_status=napcat.status())
+
+    @app.post('/api/napcat/test')
+    def napcat_test():
+        limit_login()
+        value = validate_napcat_settings(body(), store.napcat_settings(g.admin['owner']))
+        if not value['ws_url'] or not value['token']:
+            raise ValueError('请先填写 NapCat 地址和 Token')
+        return jsonify(test_napcat_connection(value))
 
     @app.get('/api/map/settings')
     def map_settings():
@@ -420,31 +447,12 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.get("/api/accounts/<account_id>/activities")
     def activities(account_id):
         value = account(account_id)
-        with account_locks[account_id]:
-            result = use_client(value, lambda client: client.activities(client.courses()))
-            activities_cache[(value["owner"], account_id)] = (time.time(), result)
-            return jsonify(activities=[a | {"signed": store.signed(value["owner"], account_id, a["id"])} for a in result])
+        return jsonify(activities=signing.refresh(value['owner'], account_id))
 
     @app.post("/api/accounts/<account_id>/sign")
     def sign(account_id):
         value, supplied = account(account_id), body()
-        activity_id = str(supplied.get("activity_id", ""))
-        with account_locks[account_id]:
-            if store.signed(value["owner"], account_id, activity_id):
-                return jsonify(message="该活动已签到，无需重复提交", duplicate=True)
-            stamp, cached = activities_cache.get((value["owner"], account_id), (0, []))
-            selected = next((a for a in cached if a["id"] == activity_id), None)
-            if not selected or time.time() - stamp > 300:
-                raise ValueError("活动列表已过期，请刷新后选择签到活动")
-            def do_sign(client):
-                live = next((a for a in client.activities([selected["course"]]) if a["id"] == activity_id), None)
-                if not live:
-                    raise ValueError("该签到活动已结束或不再可用")
-                return client.sign(live, supplied, value["name"])
-            message = use_client(value, do_sign)
-            store.mark_signed(value["owner"], account_id, activity_id)
-            store.event(value["owner"], account_id, "sign_success", selected["title"] + "：签到成功")
-            return jsonify(message=message)
+        return jsonify(signing.submit(value['owner'], account_id, supplied))
 
     @app.post("/api/accounts/<account_id>/study")
     def study(account_id):

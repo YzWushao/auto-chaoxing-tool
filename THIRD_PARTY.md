@@ -48,3 +48,10 @@
 - 来源：[高德开放平台](https://lbs.amap.com/api/javascript-api-v2/getting-started)。通过官方 `https://webapi.amap.com/maps` 按需加载 SDK，仓库不复制或再分发其 SDK / 底图，服务不因本项目 GPLv3 许可而变成开源组件；其使用须遵循高德的条款、额度及许可。
 - `web/amap-frame.js` 使用官方 Map、Marker、Circle、Scale、ToolBar、PlaceSearch 接口。官方地图署名保留，不使用未公开瓦片接口、示例共享 Key 或他人 Key。
 - 安全密钥按 [官方代理方式](https://lbs.amap.com/api/javascript-api-v2/guide/abc/jscode) 接入：`server/map_config.py` 只代理固定服务路径并注入服务器密钥，不向网页返回安全密钥。`web/amap-picker.js` 验证同源页面消息的来源和窗口，统一转换 GCJ-02 / WGS84 与现有点位兼容。
+
+## QQ 签到运行时依赖（2026-10-27）
+
+- NapCat / OneBot 11：[NapNeko/NapCatQQ](https://github.com/NapNeko/NapCatQQ)、[网络配置](https://napneko.github.io/config/basic)。只对接已部署的服务，不复制、捆绑或再分发 NapCat 程序；按 OneBot 11 消息段与 echo 协议实现私聊会话。
+- [python-websockets/websockets](https://github.com/python-websockets/websockets)，BSD-3-Clause，使用同步 WebSocket 客户端；由 requirements 安装，不将第三方源码复制进仓库。
+- [zxing-cpp/zxing-cpp](https://github.com/zxing-cpp/zxing-cpp)，Apache-2.0，使用 Python 绑定在本机解码 QQ 上传的二维码图片；[Pillow](https://github.com/python-pillow/Pillow)，用于读取和缩放图片，许可依所安装发行包为准（本机验证 12.3.0 为 MIT-CMU；旧版本亦有 HPND / Pillow 许可声明）。均为单独安装的运行时依赖，原发行包内许可证保留。
+- `server/sign_coordinates.py` 是既有 coordtransform 公式的 Python 适配，保留 Copyright (c) 2015 记忆的残骸 与 MIT 声明（`licenses/coordtransform-MIT.txt`）；不修改原始第三方 JS。
