@@ -1,14 +1,74 @@
 """Decode QQ-uploaded QR pictures locally. Never fetch decoded QR URLs."""
 import base64
 import io
+import re
 import warnings
 from urllib.parse import urlsplit, urlunsplit, parse_qs, urljoin
 
 import requests
-from PIL import Image
+from PIL import Image, ImageOps
 import zxingcpp
 
 MAX_IMAGE = 8 * 1024 * 1024
+
+
+class ImageReadError(ValueError):
+    """User-facing image failure; keep the selected QR activity for retry."""
+
+
+def base64_picture(encoded):
+    if not isinstance(encoded, str):
+        raise ImageReadError('图片内容无效，请重新发送原图')
+    if encoded.startswith('base64://'):
+        encoded = encoded[9:]
+    elif encoded.startswith('data:'):
+        header, separator, encoded = encoded.partition(',')
+        if not separator or not header.startswith('data:image/') or not header.endswith(';base64'):
+            raise ImageReadError('图片内容无效，请重新发送原图')
+    if len(encoded) > (MAX_IMAGE * 4 // 3 + 16):
+        raise ImageReadError('二维码图片不能超过 8 MB')
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (ValueError, TypeError):
+        raise ImageReadError('图片内容无效，请重新发送原图') from None
+    if not data or len(data) > MAX_IMAGE:
+        raise ImageReadError('二维码图片需在 8 MB 以内')
+    return data
+
+
+class ImageStream:
+    """Bounded, ordered reader for NapCat's official download_file_stream."""
+    def __init__(self):
+        self.content = bytearray()
+        self.expected_size = None
+        self.index = 0
+        self.complete = False
+
+    def feed(self, packet):
+        if not isinstance(packet, dict) or self.complete:
+            raise ImageReadError('图片传输未完成，请重新发送原图')
+        kind = packet.get('data_type')
+        if kind == 'file_info' and self.expected_size is None:
+            size = packet.get('file_size')
+            if type(size) is not int or not 0 < size <= MAX_IMAGE:
+                raise ImageReadError('二维码图片需在 8 MB 以内')
+            self.expected_size = size
+        elif kind == 'file_chunk' and self.expected_size is not None:
+            encoded = packet.get('data')
+            if packet.get('index') != self.index or not isinstance(encoded, str) or len(encoded) > 90000:
+                raise ImageReadError('图片传输未完成，请重新发送原图')
+            chunk = base64_picture(encoded)
+            if packet.get('size') != len(chunk) or len(self.content)+len(chunk) > self.expected_size:
+                raise ImageReadError('图片传输未完成，请重新发送原图')
+            self.content.extend(chunk)
+            self.index += 1
+        elif kind == 'file_complete' and self.expected_size is not None:
+            if packet.get('total_chunks') != self.index or packet.get('total_bytes') != len(self.content) or len(self.content) != self.expected_size:
+                raise ImageReadError('图片传输未完成，请重新发送原图')
+            self.complete = True
+        else:
+            raise ImageReadError('图片传输未完成，请重新发送原图')
+        return self.complete
 
 
 def image_url(raw):
@@ -17,8 +77,8 @@ def image_url(raw):
     url = urlsplit(raw)
     host = (url.hostname or '').lower()
     if (url.scheme not in {'http', 'https'} or url.username or url.password or url.port not in {None, 80, 443}
-            or not (host.endswith('.qpic.cn') or host == 'qpic.cn' or host == 'multimedia.nt.qq.com')):
-        raise ValueError('只接收 QQ 图片 CDN 地址，不下载任意网址或本地文件')
+            or not (host.endswith('.qpic.cn') or host == 'qpic.cn' or host in {'multimedia.nt.qq.com', 'multimedia.nt.qq.com.cn'})):
+        raise ImageReadError('图片读取暂时失败，请重新发送原图')
     return urlunsplit(('https', host, url.path, url.query, ''))
 
 
@@ -46,7 +106,8 @@ def download_picture(raw):
     raise ValueError('QQ 图片重定向次数过多，请重新发送原图')
 
 
-def decode_picture(data):
+def transcode_picture(data):
+    """Decode uploaded bytes, honor orientation, flatten alpha, normalize to PNG."""
     if not isinstance(data, bytes) or not data or len(data) > MAX_IMAGE:
         raise ValueError('二维码图片需在 8 MB 以内')
     try:
@@ -56,11 +117,22 @@ def decode_picture(data):
                 if image.format not in {'PNG', 'JPEG', 'WEBP', 'GIF'} or image.width * image.height > 24000000:
                     raise ValueError('图片格式或尺寸不支持，请裁剪二维码后重发')
                 image.load()
-                pixels = image.convert('RGB')
+                pixels = ImageOps.exif_transpose(image)
                 pixels.thumbnail((2048, 2048))
-                texts = list(dict.fromkeys(result.text for result in zxingcpp.read_barcodes(pixels, formats=zxingcpp.BarcodeFormat.QRCode) if result.text))
+                rgba = pixels.convert('RGBA')
+                background = Image.new('RGBA', rgba.size, 'white')
+                background.alpha_composite(rgba)
+                output = io.BytesIO()
+                background.convert('RGB').save(output, format='PNG')
+                return output.getvalue()
     except (OSError, Image.DecompressionBombError, Image.DecompressionBombWarning):
         raise ValueError('图片无法读取，请发送清晰的二维码原图') from None
+
+
+def decode_picture(data):
+    normalized = transcode_picture(data)
+    with Image.open(io.BytesIO(normalized)) as pixels:
+        texts = list(dict.fromkeys(result.text for result in zxingcpp.read_barcodes(pixels, formats=zxingcpp.BarcodeFormat.QRCode) if result.text))
     if not texts:
         raise ValueError('没有识别到二维码，请裁剪二维码后重新上传')
     if len(texts) != 1:
@@ -73,21 +145,48 @@ def decode_picture(data):
         return raw
 
 
-def qq_picture(rpc, segment):
+def qq_picture(rpc, segment, stream_loader=None):
     value = segment.get('data') or {}
-    file = value.get('file')
+    file = value.get('file') or value.get('file_id')
     if not isinstance(file, str) or not file or len(file) > 2048:
-        raise ValueError('QQ 图片标识无效，请重新发送图片')
-    details = rpc('get_image', {'file': file})
-    # Some compatible implementations return the bytes directly; do not open a
-    # remote server's `file` path on this machine or request arbitrary file APIs.
-    if isinstance(details.get('base64'), str):
-        encoded = details['base64']
-        if len(encoded) > (MAX_IMAGE * 4 // 3 + 16):
-            raise ValueError('二维码图片不能超过 8 MB')
+        raise ImageReadError('图片标识无效，请重新发送原图')
+    if file.startswith(('/', '\\')) or '://' in file or re.match(r'^[A-Za-z]:', file):
+        raise ImageReadError('图片标识无效，请直接发送图片')
+    details = {}
+    try:
+        details = rpc('get_image', {'file': file})
+    except ValueError:
+        pass
+    data = None
+    if isinstance(details.get('base64'), str) and details['base64']:
+        data = base64_picture(details['base64'])
+    if data is None and stream_loader is not None:
         try:
-            data = base64.b64decode(encoded, validate=True)
-        except (ValueError, TypeError):
-            raise ValueError('QQ 返回的图片内容无效，请重新发送原图') from None
+            # File ID comes from the received image, never from a chat text/path.
+            data = stream_loader(file)
+        except ValueError:
+            pass
+    if data is None:
+        try:
+            fallback = rpc('get_file', {'file_id': file})
+            if isinstance(fallback.get('base64'), str) and fallback['base64']:
+                data = base64_picture(fallback['base64'])
+            details = {**details, **{k: v for k, v in fallback.items() if v}}
+        except ValueError:
+            pass
+    if data is None:
+        # Older NapCat versions can still provide a refreshed QQ CDN URL.
+        for url in (details.get('url'), value.get('url')):
+            if not url:
+                continue
+            try:
+                data = download_picture(url)
+                break
+            except ValueError:
+                continue
+    if data is None:
+        raise ImageReadError('图片读取暂时失败，请重新发送原图')
+    try:
         return decode_picture(data)
-    return decode_picture(download_picture(details.get('url') or value.get('url')))
+    except ValueError as error:
+        raise ImageReadError(str(error)) from None

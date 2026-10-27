@@ -236,6 +236,14 @@ class ChaoxingClient:
             raise PlatformError("签到未成功：" + (plain or "平台未确认成功"))
         return "签到成功"
 
+    def group_activities(self):
+        from .group_sign import GroupSignClient
+        return GroupSignClient(self).activities()
+
+    def group_activity(self, selected):
+        from .group_sign import GroupSignClient
+        return GroupSignClient(self).live(selected)
+
 
 class QRLogin:
     def __init__(self, client_factory=ChaoxingClient):

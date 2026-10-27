@@ -12,8 +12,8 @@ from websockets.sync.server import serve
 
 from server.chaoxing import PlatformError
 from server.config import MASK
-from server.napcat import SignConversation, validate_settings, DEFAULT
-from server.sign_images import decode_picture, image_url, qq_picture
+from server.napcat import SignConversation, validate_settings, DEFAULT, download_image_stream
+from server.sign_images import decode_picture, image_url, qq_picture, ImageStream, ImageReadError, transcode_picture
 from server.sign_coordinates import location_parameters
 from tests.conftest import FakeClient
 
@@ -203,6 +203,19 @@ def test_many_points_paginate_without_losing_global_number(app, browser, chat):
     assert chat['calls'][0][1]['longitude'] == '116.029000'
 
 
+def test_qq_combines_groups_and_uses_current_display_preference(app,browser,chat,monkeypatch):
+    from tests.test_group_sign import group_activity
+    browser.send('/preferences',{'include_group_sign':True,'account_label':'surname_tail'},'PUT')
+    monkeypatch.setattr(FakeClient,'group_activities',lambda c:[group_activity()],raising=False)
+    monkeypatch.setattr(FakeClient,'group_activity',lambda c,s:group_activity(),raising=False)
+    say=chat['message'];say('签到')
+    assert '测 0001' in chat['sent'][-1][1]
+    say('1')
+    assert '[群聊]' in chat['sent'][-1][1] and '[课程]' in chat['sent'][-1][1]
+    say('5')
+    assert chat['calls'][0][0]['id']=='999'
+
+
 def test_napcat_config_auth_csrf_masks_encryption_and_export(browser, app):
     assert browser.get('/napcat/settings').status_code == 401
     assert browser.send('/napcat/test').status_code == 401
@@ -242,6 +255,88 @@ def test_qr_decode_and_no_arbitrary_url_or_file_download():
 def test_bad_qq_image_does_not_open_remote_local_path():
     with pytest.raises(ValueError):
         qq_picture(lambda *args: {'file': 'C:/secret.key', 'url': 'file:///secret.key'}, {'data': {'file': 'image-id'}})
+
+
+def test_new_qq_image_cdn_is_supported():
+    assert image_url('https://multimedia.nt.qq.com.cn/download?id=offline') == 'https://multimedia.nt.qq.com.cn/download?id=offline'
+
+
+def test_remote_cache_picture_stream_is_transcoded_and_decoded(monkeypatch):
+    refs = []
+    def stream(ref):
+        refs.append(ref)
+        return qr_bytes()
+    monkeypatch.setattr('server.sign_images.download_picture', lambda *args: pytest.fail('stream path should not download a URL'))
+    value = qq_picture(lambda *args: {'file': '/remote/qq/cache/image.png', 'url': '/remote/qq/cache/image.png'}, {'data': {'file': 'opaque-received-image'}}, stream)
+    assert value == 'EXPIRED_TEST_TOKEN_123' and refs == ['opaque-received-image']
+
+
+@pytest.mark.parametrize('prefix', ['', 'base64://', 'data:image/png;base64,'])
+def test_get_file_base64_fallback(prefix):
+    actions = []
+    def rpc(action, params):
+        actions.append(action)
+        if action == 'get_image':
+            return {'url': '/remote/cache'}
+        assert action == 'get_file' and params == {'file_id': 'opaque-image'}
+        return {'base64': prefix+base64.b64encode(qr_bytes()).decode()}
+    assert qq_picture(rpc, {'data': {'file': 'opaque-image'}}) == 'EXPIRED_TEST_TOKEN_123'
+    assert actions == ['get_image', 'get_file']
+
+
+def test_png_normalization_and_friendly_image_retry(chat):
+    normalized = transcode_picture(qr_bytes())
+    assert normalized.startswith(b'\x89PNG\r\n\x1a\n')
+    original = chat['conversation'].rpc
+    def rpc(action, params):
+        if action in {'get_image', 'get_file'}:
+            return {'file': '/remote/cache', 'url': '/remote/cache'}
+        return original(action, params)
+    chat['conversation'].rpc = rpc
+    say = chat['message']
+    say('签到'); say('1'); say('2'); say(image=True)
+    result = chat['sent'][-1][1]
+    assert '重新发送原图' in result and 'CDN' not in result and '可重试；' not in result
+    assert chat['conversation'].sessions[QQ]['phase'] == 'qr' and not chat['calls']
+
+
+def test_ordered_bounded_image_stream():
+    data = b'picture-bytes'
+    reader = ImageStream()
+    assert not reader.feed({'data_type': 'file_info', 'file_size': len(data)})
+    assert not reader.feed({'data_type': 'file_chunk', 'index': 0, 'size': len(data), 'data': base64.b64encode(data).decode()})
+    assert reader.feed({'data_type': 'file_complete', 'total_chunks': 1, 'total_bytes': len(data)})
+    assert bytes(reader.content) == data
+    for packet in [{'data_type': 'file_info', 'file_size': 9*1024*1024}, {'data_type': 'file_chunk', 'index': 0, 'size': 1, 'data': 'YQ=='}]:
+        with pytest.raises(ImageReadError):
+            ImageStream().feed(packet)
+    broken = ImageStream()
+    broken.feed({'data_type': 'file_info', 'file_size': 5})
+    with pytest.raises(ImageReadError):
+        broken.feed({'data_type': 'file_chunk', 'index': 1, 'size': 5, 'data': 'aGVsbG8='})
+
+
+def test_real_file_stream_transport_without_url_or_local_file_reads():
+    data = qr_bytes()
+    def handler(socket):
+        request = json.loads(socket.recv(timeout=5))
+        assert request['action'] == 'download_file_stream' and request['params']['file_id'] == 'opaque-image'
+        def send(packet):
+            socket.send(json.dumps({'status': 'ok', 'retcode': 0, 'data': packet, 'echo': request['echo']}))
+        send({'type': 'stream', 'data_type': 'file_info', 'file_size': len(data)})
+        for i in range(0, len(data), 1000):
+            chunk = data[i:i+1000]
+            send({'type': 'stream', 'data_type': 'file_chunk', 'index': i//1000, 'size': len(chunk), 'data': base64.b64encode(chunk).decode()})
+        send({'type': 'response', 'data_type': 'file_complete', 'total_chunks': (len(data)+999)//1000, 'total_bytes': len(data)})
+    with serve(handler, '127.0.0.1', 0) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            config = {'ws_url': f'ws://127.0.0.1:{server.socket.getsockname()[1]}/', 'token': TOKEN}
+            result = download_image_stream(config, 'opaque-image')
+            assert result == data and decode_picture(result) == 'EXPIRED_TEST_TOKEN_123'
+        finally:
+            server.shutdown(); thread.join(timeout=5)
 
 
 def test_coordinates_match_known_web_projection():

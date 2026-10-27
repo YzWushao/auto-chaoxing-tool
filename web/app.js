@@ -5,7 +5,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const activeStates = new Set(['queued','running','waiting','stopping']);
-const titles = {overview:'总览',study:'刷课中心','study-config':'刷课参数',sign:'签到中心',accounts:'用户管理',settings:'设置',presets:'预设点位'};
+const titles = {overview:'总览',study:'刷课中心','study-config':'刷课参数',sign:'签到中心','sign-group':'群聊签到',accounts:'用户管理',settings:'设置',presets:'预设点位'};
 const jobLabels = {queued:'排队中',running:'运行中',waiting:'等待输入',stopping:'正在停止',succeeded:'已完成',partial:'部分完成',failed:'失败',cancelled:'已停止',interrupted:'已中断'};
 const kindLabels = {normal:'普通签到',gesture:'手势签到',qr:'二维码签到',location:'位置签到',photo:'拍照签到',code:'签到码'};
 const labels = {provider:'题库 / API 提供方',endpoint:'API Endpoint',key:'API Key',model:'模型名称',tokens:'题库 Token',submit:'自动提交章节检测',cover_rate:'最低题库覆盖率',delay:'题目查询间隔（秒）',check_llm_connection:'启动时检查 AI 连接',min_interval_seconds:'AI 请求间隔（秒）',http_proxy:'代理地址',likeapi_search:'LIKE 联网搜索',likeapi_vision:'LIKE 视觉能力',likeapi_model:'LIKE 模型',likeapi_retry:'LIKE 自动重试',likeapi_retry_times:'LIKE 重试次数',url:'TikuAdapter 服务地址',go_authorization:'GO 题库授权 Token',go_min_interval:'GO 请求间隔（秒）',go_retry_times:'GO 重试次数',go_retry_backoff:'GO 退避基数',siliconflow_key:'硅基流动 API Key',siliconflow_model:'硅基流动模型',siliconflow_endpoint:'硅基流动 Endpoint',manual_mode_default:'手动答题模式',manual_mode_separator:'手动答题分隔符',true_list:'判断题正确词表',false_list:'判断题错误词表'};
@@ -144,9 +144,10 @@ function navigate(page) { location.hash = '#' + page; if (state.page===page) ren
 function render() {
   if (!state.authenticated) return;
   const page = location.hash.slice(1); state.page = titles[page] ? page : 'overview';
+  if(state.page==='sign-group'&&!state.preferences?.include_group_sign)state.page='sign';
   $('#breadcrumb-title').textContent=titles[state.page];
-  $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === (state.page==='study-config'?'study':state.page==='presets'?'settings':state.page)));
-  const renderers = {overview:overviewPage,study:studyPage,'study-config':configPage,sign:signPage,accounts:accountsPage,settings:settingsPage,presets:presetsPage};
+  $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === (state.page==='study-config'?'study':state.page==='presets'?'settings':state.page==='sign-group'?'sign':state.page)));
+  const renderers = {overview:overviewPage,study:studyPage,'study-config':configPage,sign:signPage,'sign-group':signPage,accounts:accountsPage,settings:settingsPage,presets:presetsPage};
   $('#page-content').innerHTML = (state.admin?.default_password?'<div class="notice">管理员仍使用默认密码，请到 <a href="#settings">设置 → 管理员账号与密码</a> 修改后再开放远程访问。</div>':'')+renderers[state.page]();
   if (state.page==='study' && state.logJob) { state.logAfter=0; loadLogs(); }
 }
@@ -233,7 +234,7 @@ function configPage() {
 }
 
 function settingsPage() {
-  return heading('设置','管理管理员凭据、预设点位、地图服务、QQ 签到与全局 API 配置。')+presetsSettingsEntry()+napcatPanel()+mapSettingsPanel()+adminPanel()+
+  return heading('设置','管理管理员凭据、预设点位、地图服务、QQ 签到与全局 API 配置。')+preferencesPanel()+presetsSettingsEntry()+napcatPanel()+mapSettingsPanel()+adminPanel()+
     `<div class="settings-grid"><form id="global-api-form" class="panel"><div class="panel-header"><div><h3>全局 API 配置</h3><p class="subheading">所有开启“使用全局 API 配置”的用户将自动继承</p></div><span class="badge purple">默认配置</span></div><div class="panel-body">${apiFields(state.settings.api)}</div><div class="panel-actions"><small>密钥加密保存，仅返回脱敏信息</small><button type="submit" class="button primary">保存全局配置</button></div></form><aside><section class="panel"><div class="panel-header"><h3>扩展计划</h3><span class="badge">TODO</span></div><div class="panel-body">${state.integrations.map(i=>`<div class="integration"><span class="integration-icon">${icon('link')}</span><div><h3>${esc(i.name)} <span class="badge">待接入</span></h3><p>${esc(i.description)}</p></div></div>`).join('')}</div></section><section class="panel"><div class="panel-header"><h3>服务信息</h3></div><div class="panel-body"><div class="setting-row"><span>当前版本</span><b>${esc(state.system.version)}</b></div><div class="setting-row"><span>会话隔离</span><b>按用户隔离</b></div><div class="setting-row"><span>凭据存储</span><b>本地加密</b></div><div class="setting-row"><span>OCR 扩展</span><b>${state.system.ocr?'已安装':'未安装（可选）'}</b></div><p class="setting-note">NapCat 仅接入授权 QQ 的私聊签到会话；第三方推送、辅助登录和主动状态通知仍未接入。登录失效、任务结果等事件已经在“最近动态”中记录。</p></div></section></aside></div>${creditsPanel()}`;
 }
 
@@ -243,17 +244,19 @@ function accountsPage() {
 }
 
 function signPage() {
-  const a=current(); if(!a) return accountsPage(); const list=state.activities[a.id];
-  return heading('签到中心','使用 '+a.name+' 的统一登录会话，读取课程活动。',button('刷新活动','sign-refresh','primary','refresh'))+
+  const a=current(); if(!a) return accountsPage(); const source=currentSignSource(),key=signActivityKey(a.id),list=state.activities[key];
+  const prefix=heading(source==='group'?'群聊签到':'签到中心','使用 '+a.name+' 的统一登录会话，读取'+(source==='group'?'超星群聊签到。':'课程活动。'),button('刷新活动','sign-refresh','primary','refresh'))+signSourceTabs()+signWarnings(key);
+  if(state.signWarnings?.[key]?.length&&!list?.length)return prefix;
+  return prefix+
     `<div class="notice purple">选择活动后填写所需参数并提交。也可在设置启用 QQ 签到，通过 NapCat 私聊选择用户、选择活动并上传二维码或选择预设点位。</div>`+
     (!list?`<section class="panel">${empty('查看当前签到活动','点击“刷新活动”，获取当前用户的有效签到列表。','','sign')}</section>`:!list.length?`<section class="panel">${empty('暂时没有进行中的签到','请确认当前用户，或在老师发布签到后刷新。','','sign')}</section>`:`<div class="sign-grid">${list.map(a=>`<article class="sign-card"><div class="card-top"><span class="course-icon">${icon('sign')}</span><span class="badge ${a.signed?'green':'purple'}">${a.signed?'已签到':esc(kindLabels[a.photo?'photo':a.kind]||'签到活动')}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.course.title)}</p><p>活动编号 ${esc(a.id)}</p>${button(a.signed?'已签到':a.kind==='qr'&&!a.photo?'上传二维码 / 填写':'填写并签到','sign-open',a.signed?'secondary':'primary','',`data-id="${esc(a.id)}" ${a.signed?'disabled':''}`)}</article>`).join('')}</div>`);
 }
 
 function openSign(id) {
-  const a=state.activities[state.active]?.find(x=>x.id===id); if(!a) return;
+  const a=state.activities[signActivityKey(state.active)]?.find(x=>x.id===id); if(!a) return;
   cancelSignQR(); closeSignMap(); state.signMapPoint=null;
   const kind=a.photo?'photo':a.kind;
-  $('#modal-content').innerHTML=`<form id="sign-form" data-activity="${esc(id)}" data-account="${state.active}"><div class="modal-head"><h2>${esc(a.title)}</h2><button type="button" class="icon-button" data-action="modal-close" aria-label="关闭">×</button></div><div class="modal-body"><p class="muted">${esc(a.course.title)} · ${esc(current().name)}</p><div class="field"><label for="sign-kind">签到方式</label><select id="sign-kind" name="kind">${Object.entries(kindLabels).map(([k,l])=>`<option value="${k}" ${kind===k?'selected':''}>${l}</option>`).join('')}</select></div><div class="gap"></div><div id="sign-fields">${signFields(kind)}</div><p class="inline-error" id="sign-error"></p></div><div class="modal-actions"><button type="button" class="button secondary" data-action="modal-close">取消</button><button type="submit" class="button primary">确认提交签到</button></div></form>`;
+  $('#modal-content').innerHTML=`<form id="sign-form" data-activity="${esc(id)}" data-account="${state.active}" data-source="${currentSignSource()}"><input type="hidden" name="source" value="${currentSignSource()}"><div class="modal-head"><h2>${esc(a.title)}</h2><button type="button" class="icon-button" data-action="modal-close" aria-label="关闭">×</button></div><div class="modal-body"><p class="muted">${esc(a.course.title)} · ${esc(current().name)}</p><div class="field"><label for="sign-kind">签到方式</label><select id="sign-kind" name="kind">${Object.entries(kindLabels).map(([k,l])=>`<option value="${k}" ${kind===k?'selected':''}>${l}</option>`).join('')}</select></div><div class="gap"></div><div id="sign-fields">${signFields(kind)}</div><p class="inline-error" id="sign-error"></p></div><div class="modal-actions"><button type="button" class="button secondary" data-action="modal-close">取消</button><button type="submit" class="button primary">确认提交签到</button></div></form>`;
   $('#modal').showModal();
 }
 
@@ -450,7 +453,7 @@ document.addEventListener('click', async event=>{
     if(action==='courses-save') { await saveTargets(); toast('学习目标已保存'); }
     if(action==='study-start') { const accountId=state.active; await saveTargets(accountId); const data=await api(`/accounts/${accountId}/study`,'POST',{}); state.jobs.unshift(data.job); state.logJob=data.job.id; state.logAfter=0; render(); toast('任务已启动，可在日志区查看进度'); }
     if(action==='job-stop') { await api(`/jobs/${id}/stop`,'POST',{}); await refreshLive(); toast('已发送停止请求'); }
-    if(action==='sign-refresh') { const accountId=state.active; const data=await api(`/accounts/${accountId}/activities`); state.activities[accountId]=data.activities; if(state.active===accountId&&state.page==='sign') render(); toast(`已读取 ${data.activities.length} 个有效活动`); }
+    if(action==='sign-refresh') { const accountId=state.active,source=currentSignSource(),key=signActivityKey(accountId,source);const data=await api(`/accounts/${accountId}/activities?source=${source}`);state.activities[key]=data.activities;state.signWarnings=state.signWarnings||{};state.signWarnings[key]=data.warnings||[];if(state.active===accountId&&['sign','sign-group'].includes(state.page)) render();toast(data.warnings?.length?'部分来源读取失败，请查看页面提示':`已读取 ${data.activities.length} 个有效活动`,Boolean(data.warnings?.length)); }
     if(action==='account-remove') { if(!confirm('移除此用户的本地会话与配置？运行中的任务需要先停止。')) return; await api(`/accounts/${id}`,'DELETE',{}); delete state.selection[id]; await bootstrap(); toast('已移除用户'); }
   });
 });
@@ -491,7 +494,7 @@ document.addEventListener('submit',async event=>{
     }
     if(form.id==='global-api-form') { const data=await api('/settings','PUT',{api:readApi(form)}); state.settings=data; toast('全局 API 配置已保存'); render(); }
     if(form.id==='study-config-form') { const study=Object.fromEntries($$('[name^="study."]',form).map(el=>[el.name.slice(6),el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value])); const data=await api(`/accounts/${accountId}/config`,'PUT',{study,inherit_api:$('#inherit-api').checked,api:readApi(form)}); const a=state.accounts.find(a=>a.id===accountId); if(a) a.config=data.config; toast('用户刷课配置已保存'); render(); }
-    if(form.id==='sign-form') { const payload=Object.fromEntries(new FormData(form)); payload.activity_id=form.dataset.activity; try{ const data=await api(`/accounts/${form.dataset.account}/sign`,'POST',payload); const activity=state.activities[form.dataset.account]?.find(a=>a.id===payload.activity_id); if(activity) activity.signed=true; $('#modal').close(); toast(data.message); render(); }catch(error){ $('#sign-error').textContent=error.message; throw error; } }
+    if(form.id==='sign-form') { const payload=Object.fromEntries(new FormData(form)); payload.activity_id=form.dataset.activity; try{ const data=await api(`/accounts/${form.dataset.account}/sign`,'POST',payload); const activity=state.activities[signActivityKey(form.dataset.account,form.dataset.source)]?.find(a=>a.id===payload.activity_id); if(activity) activity.signed=true; $('#modal').close(); toast(data.message); render(); }catch(error){ $('#sign-error').textContent=error.message; throw error; } }
     if(form.id==='job-input-form') { await api(`/jobs/${form.dataset.id}/input`,'POST',{answer:form.elements.answer.value}); toast('回复已发送'); await refreshLive(); }
   },'正在保存 / 提交…');
 });

@@ -24,6 +24,7 @@ from .maps import MapSearch
 from .map_config import AMapProxy, public_map_settings, validate_map_settings
 from .tasks import ACTIVE, TaskManager
 from .signing import SignService
+from .preferences import account_label, validate_preferences
 from .napcat import NapCatManager, public_settings as public_napcat_settings, validate_settings as validate_napcat_settings, test_connection as test_napcat_connection
 
 
@@ -149,6 +150,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
 
     def public_account(value):
         return {k: v for k, v in value.items() if k not in {"owner", "cookies", "config", "phone"}} | {
+            'name': account_label(value, store.preferences(g.admin['owner'])['account_label']),
             "phone": re.sub(r"(\d{3})\d+(\d{4})", r"\1****\2", value["phone"]), "config": public_config(value["config"])}
 
     def use_client(value, action):
@@ -284,6 +286,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
                        map_settings=public_map_settings(store.map_settings(g.admin['owner'])),
                        napcat_settings=public_napcat_settings(store.napcat_settings(g.admin['owner'])),
                        napcat_status=napcat.status(),
+                       preferences=store.preferences(g.admin['owner']),
                        location_presets=store.location_presets(g.admin['owner']),
                        settings={"api": public_api(settings["api"])},
                        schema={"api": public_api(API_DEFAULTS), "providers": PROVIDERS},
@@ -294,6 +297,12 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.get('/api/napcat/settings')
     def napcat_settings():
         return jsonify(napcat_settings=public_napcat_settings(store.napcat_settings(g.admin['owner'])), napcat_status=napcat.status())
+
+    @app.put('/api/preferences')
+    def preferences_save():
+        value = validate_preferences(body(), store.preferences(g.admin['owner']))
+        store.set_preferences(g.admin['owner'], value)
+        return jsonify(preferences=value, accounts=[public_account(a) for a in accounts()])
 
     @app.put('/api/napcat/settings')
     def napcat_save():
@@ -447,7 +456,9 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.get("/api/accounts/<account_id>/activities")
     def activities(account_id):
         value = account(account_id)
-        return jsonify(activities=signing.refresh(value['owner'], account_id))
+        source = request.args.get('source', 'course')
+        result = signing.refresh(value['owner'], account_id, source)
+        return jsonify(activities=[{k:v for k,v in a.items() if not k.startswith('_')} for a in result], warnings=signing.warnings.get((value['owner'],account_id,source), []))
 
     @app.post("/api/accounts/<account_id>/sign")
     def sign(account_id):

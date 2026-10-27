@@ -17,7 +17,8 @@ from websockets.sync.client import connect
 from .chaoxing import PlatformError, SessionExpired
 from .config import MASK
 from .sign_coordinates import location_parameters
-from .sign_images import qq_picture
+from .preferences import account_label
+from .sign_images import qq_picture, ImageReadError, ImageStream
 
 DEFAULT = {'enabled': False, 'ws_url': '', 'token': '', 'allowed_qqs': []}
 KINDS = {'normal': '普通', 'qr': '二维码', 'location': '位置', 'gesture': '手势（请用网页）', 'code': '签到码（请用网页）'}
@@ -67,8 +68,35 @@ def open_connection(value):
     logger = logging.getLogger('auto_chaoxing.napcat.transport')
     logger.setLevel(logging.CRITICAL)
     return connect(value['ws_url'], additional_headers={'Authorization': 'Bearer ' + value['token']},
-                   proxy=None, open_timeout=8, close_timeout=1, max_size=2*1024*1024,
-                   max_queue=32, compression=None, logger=logger)
+                   proxy=None, open_timeout=8, close_timeout=1, max_size=12*1024*1024,
+                   max_queue=4, compression=None, logger=logger)
+
+
+def download_image_stream(value, file_id):
+    """Receive original image bytes over the same authenticated OneBot service.
+
+    A separate bounded connection isolates stream packets from command replies.
+    Never interpret NapCat's remote cache path as a path on this machine.
+    """
+    reader = ImageStream()
+    try:
+        with open_connection(value) as socket:
+            echo = uuid.uuid4().hex
+            socket.send(json.dumps({'action': 'download_file_stream', 'params': {'file_id': file_id, 'chunk_size': 65536}, 'echo': echo}))
+            deadline = time.monotonic()+25
+            while time.monotonic() < deadline:
+                response = json.loads(socket.recv(timeout=max(.1, deadline-time.monotonic())))
+                if not isinstance(response, dict) or response.get('echo') != echo:
+                    continue
+                if response.get('status') != 'ok' or response.get('retcode') != 0:
+                    raise ImageReadError('图片读取暂时失败，请重新发送原图')
+                if reader.feed(response.get('data')):
+                    return bytes(reader.content)
+    except ImageReadError:
+        raise
+    except Exception:
+        raise ImageReadError('图片读取暂时失败，请重新发送原图') from None
+    raise ImageReadError('图片读取超时，请重新发送原图')
 
 
 def test_connection(value):
@@ -91,9 +119,10 @@ def test_connection(value):
 
 
 class SignConversation:
-    def __init__(self, store, signing, owner, rpc, settings):
+    def __init__(self, store, signing, owner, rpc, settings, image_stream=None):
         self.store, self.signing, self.owner, self.rpc, self.settings = store, signing, owner, rpc, settings
         self.sessions, self.rates = {}, {}
+        self.image_stream = image_stream
 
     def accounts(self):
         admin = self.store.administrator()
@@ -114,7 +143,8 @@ class SignConversation:
                 label = item['name'] + ('（登录失效）' if item['status'] != 'active' else '')
             elif state['phase'] == 'activity':
                 mode = '拍照（请用网页）' if item.get('photo') else KINDS.get(item['kind'], '请用网页')
-                label = f"{item['course']['title']} · {item['title']} [{mode}]" + ('（已签到）' if item['signed'] else '')
+                origin = '课程/群聊' if item.get('from_group') else '群聊' if item.get('source') == 'group' else '课程'
+                label = f"[{origin}] {item['course']['title']} · {item['title']} [{mode}]" + ('（已签到）' if item['signed'] else '')
             else:
                 label = item['school'] + ' · ' + item['name']
             lines.append(f'{i+1}. {label[:200]}')
@@ -158,7 +188,8 @@ class SignConversation:
             self.send(qq, '已取消本次签到会话。')
             return
         if text == '签到':
-            choices = [{'id': a['id'], 'owner': a['owner'], 'name': a['name'], 'status': a['status']} for a in self.accounts()]
+            mode = self.store.preferences(self.owner)['account_label']
+            choices = [{'id': a['id'], 'owner': a['owner'], 'name': account_label(a, mode), 'status': a['status']} for a in self.accounts()]
             self.sessions.pop(qq, None)
             if not choices:
                 self.send(qq, '还没有超星用户，请先在网页控制台添加并登录。')
@@ -181,7 +212,8 @@ class SignConversation:
                 if len(images) != 1:
                     self.send(qq, '请直接上传一张签到二维码图片（不是文件或合并转发），或回复“取消”。')
                     return
-                supplied = {'kind': 'qr', 'qr': qq_picture(self.rpc, images[0])}
+                self.send(qq, '图片已收到，正在转换并识别二维码…')
+                supplied = {'kind': 'qr', 'qr': qq_picture(self.rpc, images[0], self.image_stream)}
             else:
                 if images or not re.fullmatch(r'[0-9]{1,8}', text) or not 1 <= int(text) <= len(state['choices']):
                     self.send(qq, '请输入列表中的有效序号，或回复“签到”重新开始。')
@@ -192,9 +224,13 @@ class SignConversation:
                         raise ValueError('用户已移除，请重新发送“签到”')
                     self.send(qq, '正在刷新该用户的课程签到列表…')
                     activities = self.signing.refresh(item['owner'], item['id'])
+                    warnings = self.signing.warnings.get((item['owner'], item['id'], 'all'), [])
+                    if warnings:
+                        self.send(qq, '\n'.join(warnings))
                     if not activities:
                         self.sessions.pop(qq, None)
-                        self.send(qq, '当前没有进行中的课程签到。回复“签到”可重新刷新。')
+                        if not warnings:
+                            self.send(qq, '当前没有进行中的签到。回复“签到”可重新刷新。')
                         return
                     state.update(phase='activity', choices=activities, owner=item['owner'], account_id=item['id'], name=item['name'], page=0)
                     self.show(qq, state)
@@ -207,6 +243,7 @@ class SignConversation:
                         self.send(qq, '该活动需要拍照、手势或签到码，请在网页端处理；也可选择其他活动。')
                         return
                     state['activity_id'] = item['id']
+                    state['source'] = item.get('source', 'course')
                     if item['kind'] == 'qr':
                         state['phase'] = 'qr'
                         self.send(qq, '请上传本次签到二维码图片。收到后会本地解码并提交，平台结果会回复到这里；回复“取消”可结束。')
@@ -225,10 +262,12 @@ class SignConversation:
                     if latest is None or any(latest.get(k) != item.get(k) for k in ('longitude', 'latitude', 'address', 'coordinate_system')):
                         raise ValueError('预设点位已被修改或删除，请重新发送“签到”')
                     supplied = {'kind': 'location', **location_parameters(latest)}
-            supplied.update(activity_id=state['activity_id'], _detected_kind=supplied['kind'])
+            supplied.update(activity_id=state['activity_id'], source=state.get('source','course'), _detected_kind=supplied['kind'])
             result = self.signing.submit(state['owner'], state['account_id'], supplied)
             self.sessions.pop(qq, None)
             self.send(qq, state['name'] + '：' + result['message'] + '\n回复“签到”可继续。')
+        except ImageReadError as error:
+            self.send(qq, str(error))
         except SessionExpired:
             self.sessions.pop(qq, None)
             self.send(qq, '所选超星用户登录已失效，请在网页端重新登录后再发送“签到”。')
@@ -246,7 +285,12 @@ class NapCatManager:
         self.stop_event = threading.Event()
         self.queue = queue.Queue(maxsize=128)
         self.status_value = {'state': 'disabled', 'message': '未启用', 'bot_qq': ''}
-        self.conversation = SignConversation(store, signing, self.owner, self.rpc, self.settings)
+        self.conversation = SignConversation(store, signing, self.owner, self.rpc, self.settings, self.image_stream)
+
+    def image_stream(self, file_id):
+        if self.stop_event.is_set():
+            raise ImageReadError('连接已暂停，请稍后重新发送图片')
+        return download_image_stream(self.settings(), file_id)
 
     def settings(self):
         return self.store.napcat_settings(self.owner)
@@ -265,7 +309,7 @@ class NapCatManager:
                 return
             self.stop_event = threading.Event()
             self.queue = queue.Queue(maxsize=128)
-            self.conversation = SignConversation(self.store, self.signing, self.owner, self.rpc, self.settings)
+            self.conversation = SignConversation(self.store, self.signing, self.owner, self.rpc, self.settings, self.image_stream)
             self.threads = [threading.Thread(target=self.run, daemon=True, name='napcat-receive'), threading.Thread(target=self.work, daemon=True, name='napcat-conversation')]
             for thread in self.threads:
                 thread.start()

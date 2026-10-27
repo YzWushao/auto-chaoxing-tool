@@ -51,6 +51,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS map_settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS napcat_settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS console_preferences (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS napcat_messages (
                     bot TEXT NOT NULL, qq TEXT NOT NULL, message_id TEXT NOT NULL, received_at REAL NOT NULL,
                     PRIMARY KEY(bot, qq, message_id)
@@ -246,6 +247,16 @@ class Store:
     def administrator(self):
         with self.connect() as db:
             return self._public_admin(db.execute('SELECT * FROM administrators WHERE id=1').fetchone())
+
+    def preferences(self, owner):
+        from .preferences import DEFAULT_PREFERENCES
+        with self.connect() as db:
+            row = db.execute('SELECT value FROM console_preferences WHERE owner=?', (owner,)).fetchone()
+            return {**DEFAULT_PREFERENCES, **self.unseal(row['value'])} if row else dict(DEFAULT_PREFERENCES)
+
+    def set_preferences(self, owner, value):
+        with self.connect() as db:
+            db.execute('INSERT INTO console_preferences VALUES (?,?) ON CONFLICT(owner) DO UPDATE SET value=excluded.value', (owner, self.seal(value)))
 
     def napcat_settings(self, owner):
         with self.connect() as db:

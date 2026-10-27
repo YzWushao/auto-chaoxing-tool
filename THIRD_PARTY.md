@@ -55,3 +55,8 @@
 - [python-websockets/websockets](https://github.com/python-websockets/websockets)，BSD-3-Clause，使用同步 WebSocket 客户端；由 requirements 安装，不将第三方源码复制进仓库。
 - [zxing-cpp/zxing-cpp](https://github.com/zxing-cpp/zxing-cpp)，Apache-2.0，使用 Python 绑定在本机解码 QQ 上传的二维码图片；[Pillow](https://github.com/python-pillow/Pillow)，用于读取和缩放图片，许可依所安装发行包为准（本机验证 12.3.0 为 MIT-CMU；旧版本亦有 HPND / Pillow 许可声明）。均为单独安装的运行时依赖，原发行包内许可证保留。
 - `server/sign_coordinates.py` 是既有 coordtransform 公式的 Python 适配，保留 Copyright (c) 2015 记忆的残骸 与 MIT 声明（`licenses/coordtransform-MIT.txt`）；不修改原始第三方 JS。
+
+## 群聊与图片协议调研（2026-10-27）
+
+- 图片流按 NapCat 的[文件处理文档](https://napneko.github.io/develop/file)实现 `download_file_stream`，只使用已收到图片的文件标识、分片大小与 echo；独立实现有界分片重组与 PNG 归一化，不复制 NapCat 实现。
+- 群组接口参考环信的[群组 REST 文档](https://doc.easemob.com/document/server-side/group_obtain_detail.html)；旧服务停用及消息接口迁移参考协议维护者的[公开说明](https://github.com/aquamarine5/ChaoxingSignFaker/issues/188)。`server/group_sign.py` 是根据请求字段与实测响应独立编写的 Python 适配，只提取签到附件 JSON；没有复制该项目的 AGPL 实现、protobuf 定义或 Android 组件，项目许可不因此改写。
