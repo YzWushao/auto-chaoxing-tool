@@ -3,7 +3,7 @@ import threading
 import time
 import secrets
 from collections import defaultdict
-from .chaoxing import PlatformError, CaptchaRequired
+from .chaoxing import PlatformError, CaptchaRequired, SignRequirement
 
 
 class SignService:
@@ -15,6 +15,8 @@ class SignService:
         self.challenges = {}
         self.challenge_lock = threading.RLock()
         self.preference_owner = store.administrator()['owner']
+        from .sign_faces import SignFaces
+        self.faces = SignFaces(self)
 
     def account(self, owner, account_id):
         value = self.store.account(owner, account_id)
@@ -62,7 +64,7 @@ class SignService:
         with self.locks[account_id]:
             value = self.account(owner, account_id)
             if self.store.signed(owner, account_id, activity_id):
-                return {'message': '该活动已签到，无需重复提交', 'duplicate': True}
+                return {'message': '该活动已完成，无需重复提交', 'duplicate': True}
             source = supplied.get('source', 'course')
             if not isinstance(source, str) or source not in {'course', 'group'}:
                 raise ValueError('签到来源无效')
@@ -72,6 +74,8 @@ class SignService:
             selected = next((a for a in cached if a['id'] == activity_id), None)
             if not selected or time.monotonic() - stamp > 300:
                 raise ValueError('活动列表已过期，请刷新后选择签到活动')
+            face_id = supplied.get('face_id')
+            face = self.faces.context(owner, account_id, activity_id, face_id) if face_id else None
             proof_id = supplied.get('verification_id')
             proof = None
             if proof_id:
@@ -87,10 +91,15 @@ class SignService:
                 if supplied.get('_detected_kind') and (live['kind'] != supplied['_detected_kind'] or live.get('photo')
                         or selected['kind'] != supplied['_detected_kind']):
                     raise ValueError('签到方式已变化，请重新发送“签到”并选择活动')
-                parameters = {k: v for k, v in supplied.items() if not k.startswith('_') and k not in {'source', 'verification_id'}}
+                parameters = {k: v for k, v in supplied.items() if not k.startswith('_') and k not in {'source', 'verification_id', 'face_id'}}
                 if proof:
                     parameters['_verification'] = proof
-                return client.sign(live, parameters, value['name'])
+                if face:
+                    parameters['_face'] = face
+                try:
+                    return client.sign(live, parameters, value['name'])
+                finally:
+                    selected['phase'] = live.get('phase', selected.get('phase', 'in'))
             try:
                 message = self.use_client(value, do_sign)
             except CaptchaRequired as error:
@@ -106,12 +115,76 @@ class SignService:
                         'challenge': error.challenge, 'enc2': error.enc2, 'expires': now+180, 'last_check': 0, 'validate': None}
                 error.public = public_challenge(error.challenge, nonce)
                 raise
-            self.store.mark_signed(owner, account_id, activity_id)
-            self.store.event(owner, account_id, 'sign_success', selected['title'] + '：签到成功')
+            except SignRequirement as error:
+                if error.code in {'face_required', 'official_face_required'}:
+                    self.faces.require(owner, account_id, activity_id, error.enc2)
+                    if face_id:
+                        self.faces.discard(face_id)
+                raise
+            self._mark(owner, account_id, selected)
+            if face_id:
+                self.faces.discard(face_id)
             if proof_id:
                 with self.challenge_lock:
                     self.challenges.pop(proof_id, None)
-            return {'message': message}
+            return {'message': message, 'phase': selected.get('phase', 'in')}
+
+    def _mark(self, owner, account_id, selected):
+        from .sign_details import action_name
+        self.store.mark_signed(owner, account_id, selected['id'])
+        kind = 'sign_out_success' if selected.get('phase') == 'out' else 'sign_success'
+        self.store.event(owner, account_id, kind, selected['title']+'：'+action_name(selected)+'成功')
+
+    def selection(self, owner, account_id, activity_id, source, max_age=300):
+        self.account(owner, account_id)
+        if not isinstance(source, str) or source not in {'course', 'group'}:
+            raise ValueError('签到来源无效')
+        if source == 'group' and not self.store.preferences(self.preference_owner)['include_group_sign']:
+            raise ValueError('群聊签到已关闭')
+        stamp, items = self.cache.get((owner, account_id, source), (0, []))
+        selected = next((a for a in items if a['id'] == activity_id), None)
+        if not selected or time.monotonic()-stamp > max_age:
+            raise ValueError('活动列表已过期，请刷新后重新选择')
+        return selected
+
+    def requirements(self, owner, account_id, activity_id, source):
+        with self.locks[account_id]:
+            selected = self.selection(owner, account_id, activity_id, source)
+            value = self.account(owner, account_id)
+            result = self.use_client(value, lambda c: c.sign_requirements(selected))
+            selected['phase'] = result['phase']
+            return {**result, 'activity_id': activity_id, 'source': source}
+
+    def related(self, owner, account_id, activity_id, source, relation):
+        if relation not in {'in', 'out'}:
+            raise ValueError('关联活动方向无效')
+        with self.locks[account_id]:
+            details = self.requirements(owner, account_id, activity_id, source)
+            target = details.get('sign_in_id' if relation == 'in' else 'sign_out_id')
+            if not target or target == activity_id:
+                raise ValueError('关联活动尚未发布')
+            activities = self.refresh(owner, account_id, source)
+            found = next((a for a in activities if a['id'] == target), None)
+            if not found:
+                raise ValueError('关联活动尚未开始、已经结束，或当前用户没有访问权限')
+            return found
+
+    def confirm(self, owner, account_id, activity_id, source):
+        with self.locks[account_id]:
+            selected = self.selection(owner, account_id, activity_id, source, max_age=3600)
+            value = self.account(owner, account_id)
+            def check(client):
+                if source == 'course' and selected['course']['key'] not in {c['key'] for c in client.courses()}:
+                    raise ValueError('此用户已不在该课程中，无法核对结果')
+                if source == 'group' and not client.group_activity(selected):
+                    raise ValueError('此群聊活动已不可用，无法核对结果')
+                return client.sign_confirmed(selected)
+            signed = self.use_client(value, check) is True
+            if signed and not self.store.signed(owner, account_id, activity_id):
+                self._mark(owner, account_id, selected)
+            from .sign_details import action_name
+            return {'signed': signed, 'phase': selected.get('phase', 'in'),
+                    'message': '平台已确认'+action_name(selected) if signed else '平台尚未确认完成，请在官方客户端核对后重试'}
 
     def _challenge(self, owner, account_id, nonce):
         with self.challenge_lock:

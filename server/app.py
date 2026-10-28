@@ -101,6 +101,8 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.errorhandler(PlatformError)
     def platform_error(exc):
         payload = {'error': str(exc)[:250], 'code': getattr(exc, 'code', 'platform_error')}
+        if getattr(exc, 'activity', None):
+            payload['activity'] = exc.activity
         if isinstance(exc, CaptchaRequired):
             payload.update(code='verification_required', verification=exc.public)
             return jsonify(payload), 409
@@ -200,7 +202,10 @@ def create_app(config=None, client_factory=ChaoxingClient):
                      "sources": ROOT / "THIRD_PARTY.md", "sign-mit": ROOT / "licenses" / "chaoxing-sign-cli-MIT.txt",
                      "jsqr": ROOT / "licenses" / "jsqr-Apache-2.0.txt",
                      "leaflet": ROOT / "licenses" / "leaflet-BSD-2-Clause.txt",
-                     "coordtransform": ROOT / "licenses" / "coordtransform-MIT.txt"}
+                     "coordtransform": ROOT / "licenses" / "coordtransform-MIT.txt",
+                     "study-gpl": ROOT / "licenses" / "chaoxing-GPL-3.0.txt",
+                     "captcha-agpl": ROOT / "licenses" / "ChaoxingSignFaker-AGPL-3.0.txt",
+                     "captcha-model": ROOT / "models" / "chaoxing-captcha" / "README.md"}
         path = documents.get(document)
         if path is None:
             raise KeyError(document)
@@ -291,6 +296,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
 
     @app.get("/api/bootstrap")
     def bootstrap():
+        from .captcha_model import model as captcha_model
         settings = {"api": copy.deepcopy(API_DEFAULTS), **store.settings(g.admin["owner"])}
         return jsonify(admin=public_admin(), accounts=[public_account(a) for a in accounts()],
                        map_settings=public_map_settings(store.map_settings(g.admin['owner'])),
@@ -301,7 +307,8 @@ def create_app(config=None, client_factory=ChaoxingClient):
                        settings={"api": public_api(settings["api"])},
                        schema={"api": public_api(API_DEFAULTS), "providers": PROVIDERS},
                        jobs=visible_jobs(), events=visible_events(),
-                       system={"version": VERSION, "ocr": importlib.util.find_spec("ddddocr") is not None},
+                       system={"version": VERSION, "ocr": importlib.util.find_spec("ddddocr") is not None,
+                               "captcha_model": captcha_model.status()},
                        integrations=[{"name": "第三方推送", "state": "planned", "description": "登录失效、刷课完成、签到结果通知"}])
 
     @app.get('/api/napcat/settings')
@@ -478,10 +485,10 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.post('/api/accounts/<account_id>/camera-sign')
     def camera_submit(account_id):
         value, supplied = account(account_id), body()
-        if 'qr' not in supplied or set(supplied)-{'qr', 'verification_id', 'location'}:
+        if 'qr' not in supplied or set(supplied)-{'qr', 'verification_id', 'location', 'face_id'}:
             raise ValueError('摄像头签到只接收已解码的二维码内容')
         try:
-            return jsonify(camera_sign.submit(value['owner'], account_id, supplied['qr'], supplied.get('verification_id'), supplied.get('location')))
+            return jsonify(camera_sign.submit(value['owner'], account_id, supplied['qr'], supplied.get('verification_id'), supplied.get('location'), supplied.get('face_id')))
         except CameraRateLimit as error:
             return jsonify(error=str(error), code='rate_limited'), 429
 
@@ -489,6 +496,36 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def verification_check(account_id, nonce):
         value = account(account_id)
         return jsonify(signing.verify(value['owner'], account_id, nonce, body()))
+
+    @app.get('/api/accounts/<account_id>/activities/<activity_id>/requirements')
+    def activity_requirements(account_id, activity_id):
+        value = account(account_id)
+        return jsonify(requirements=signing.requirements(value['owner'], account_id, activity_id, request.args.get('source', 'course')))
+
+    @app.post('/api/accounts/<account_id>/activities/<activity_id>/related')
+    def activity_related(account_id, activity_id):
+        value, data = account(account_id), body()
+        selected = signing.related(value['owner'], account_id, activity_id, data.get('source', 'course'), data.get('relation'))
+        return jsonify(activity={k: v for k, v in selected.items() if not k.startswith('_')})
+
+    @app.post('/api/accounts/<account_id>/activities/<activity_id>/confirm')
+    def activity_confirm(account_id, activity_id):
+        value, data = account(account_id), body()
+        return jsonify(signing.confirm(value['owner'], account_id, activity_id, data.get('source', 'course')))
+
+    @app.post('/api/accounts/<account_id>/face')
+    def face_upload(account_id):
+        value, data = account(account_id), body()
+        if set(data)-{'activity_id', 'source', 'image', 'consent'}:
+            raise ValueError('照片请求字段无效')
+        return jsonify(signing.faces.upload(value['owner'], account_id, str(data.get('activity_id', '')),
+                       data.get('source', 'course'), data.get('image'), data.get('consent')))
+
+    @app.post('/api/accounts/<account_id>/face/<nonce>/cancel')
+    def face_cancel(account_id, nonce):
+        value = account(account_id)
+        signing.faces.cancel(value['owner'], account_id, nonce)
+        return jsonify(cancelled=True)
 
     @app.post("/api/accounts/<account_id>/study")
     def study(account_id):

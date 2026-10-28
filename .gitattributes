@@ -5,3 +5,8 @@ web/vendor/leaflet-1.9.4/* -text -whitespace
 web/vendor/coordtransform-2.1.2.js -text -whitespace
 licenses/leaflet-BSD-2-Clause.txt -text -whitespace
 licenses/coordtransform-MIT.txt -text -whitespace
+licenses/ChaoxingSignFaker-AGPL-3.0.txt -text -whitespace
+licenses/chaoxing-GPL-3.0.txt -text -whitespace
+# Keep model hashes stable on Windows and Unix checkouts.
+*.ort binary
+*.onnx binary

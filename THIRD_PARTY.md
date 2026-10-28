@@ -1,12 +1,12 @@
 # 开源来源与改动
 
-本项目明确声明复用及借鉴以下两个开源项目，感谢原作者及贡献者。原版权和许可证保留；完整声明见 [NOTICE.md](NOTICE.md)。以下修改日期均为 2026-10-23。
+本项目明确声明复用及借鉴以下开源项目，感谢原作者及贡献者。原版权和许可证保留；完整声明见 [NOTICE.md](NOTICE.md)。前两个项目的初次适配日期为 2026-10-23，其余日期单独注明。
 
 ## Samueli924/chaoxing
 
 - 来源：https://github.com/Samueli924/chaoxing
 - 固定版本：`45d2106b16764231c2de2038fb042e71b23d878f`
-- 许可证：GPL-3.0，保留在 `vendor/chaoxing/LICENSE` 与根目录 `LICENSE`。
+- 许可证：GPL-3.0，保留在 `vendor/chaoxing/LICENSE` 与 `licenses/chaoxing-GPL-3.0.txt`；该部分保持原许可。
 - 源码：`vendor/chaoxing/`，由上述版本导出，随新项目一起提供，运行时不依赖子模块下载。
 - 本地修改：`api/cxsecret_font.py` 的非打包资源路径改为引擎目录，支持分账户任务在独立工作目录运行。
 - 本地修改：`api/decode.py` 与 `api/base.py` 新增可选的已完成媒体解析；默认 CLI 行为不变。
@@ -45,7 +45,7 @@
 
 ## 可选地图服务：高德 JS API 2.0（2026-10-24 接入）
 
-- 来源：[高德开放平台](https://lbs.amap.com/api/javascript-api-v2/getting-started)。通过官方 `https://webapi.amap.com/maps` 按需加载 SDK，仓库不复制或再分发其 SDK / 底图，服务不因本项目 GPLv3 许可而变成开源组件；其使用须遵循高德的条款、额度及许可。
+- 来源：[高德开放平台](https://lbs.amap.com/api/javascript-api-v2/getting-started)。通过官方 `https://webapi.amap.com/maps` 按需加载 SDK，仓库不复制或再分发其 SDK / 底图，服务不因本项目开源许可而变成开源组件；其使用须遵循高德的条款、额度及许可。
 - `web/amap-frame.js` 使用官方 Map、Marker、Circle、Scale、ToolBar、PlaceSearch 接口。官方地图署名保留，不使用未公开瓦片接口、示例共享 Key 或他人 Key。
 - 安全密钥按 [官方代理方式](https://lbs.amap.com/api/javascript-api-v2/guide/abc/jscode) 接入：`server/map_config.py` 只代理固定服务路径并注入服务器密钥，不向网页返回安全密钥。`web/amap-picker.js` 验证同源页面消息的来源和窗口，统一转换 GCJ-02 / WGS84 与现有点位兼容。
 
@@ -59,7 +59,7 @@
 ## 群聊与图片协议调研（2026-10-27）
 
 - 图片流按 NapCat 的[文件处理文档](https://napneko.github.io/develop/file)实现 `download_file_stream`，只使用已收到图片的文件标识、分片大小与 echo；独立实现有界分片重组与 PNG 归一化，不复制 NapCat 实现。
-- 群组接口参考环信的[群组 REST 文档](https://doc.easemob.com/document/server-side/group_obtain_detail.html)；旧服务停用及消息接口迁移参考协议维护者的[公开说明](https://github.com/aquamarine5/ChaoxingSignFaker/issues/188)。`server/group_sign.py` 是根据请求字段与实测响应独立编写的 Python 适配，只提取签到附件 JSON；没有复制该项目的 AGPL 实现、protobuf 定义或 Android 组件，项目许可不因此改写。
+- 群组接口参考环信的[群组 REST 文档](https://doc.easemob.com/document/server-side/group_obtain_detail.html)；旧服务停用及消息接口迁移参考协议维护者的[公开说明](https://github.com/aquamarine5/ChaoxingSignFaker/issues/188)。`server/group_sign.py` 是根据请求字段与实测响应独立编写的 Python 适配，只提取签到附件 JSON；没有复制 protobuf 定义或 Android 组件。后续 v0.7.0 直接复用了该项目模型，许可调整见下文。
 
 ## 摄像头连续扫码交互参考（2026-10-27）
 
@@ -69,5 +69,18 @@
 
 ## 签到校验与验证协议参考（2026-10-28）
 
-- 继续查阅上述 ChaoxingSignFaker 版本中的预签到、analysis / analysis2、活动要求字段、滑块 HTTP 请求 / 响应格式与 enc2 / validate 后续流程。`server/sign_protocol.py`、`server/sign_captcha.py` 和网页验证交互独立实现，没有复制其 Android / Kotlin 代码、ONNX / ORT 模型或图像资源。自动识别使用本项目的 Pillow 掩码与区域规则，不宣称等同原模型效果。
+- 继续查阅上述 ChaoxingSignFaker 版本中的预签到、analysis / analysis2、活动要求字段、滑块 HTTP 请求 / 响应格式与 enc2 / validate 后续流程。`server/sign_protocol.py`、`server/sign_captcha.py` 和网页验证交互是 Python / 浏览器实现；v0.6.0 使用颜色区域规则，v0.7.0 按用户要求改为原项目模型推理，来源与改动见下文。
 - 人工验证图片为超星验证服务当次生成的临时内容，不随仓库再分发；测试拼图由本项目生成，不使用第三方图片。补光 / 变焦使用浏览器标准 [getCapabilities](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack/getCapabilities) 与 [applyConstraints](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack/applyConstraints)，不捆绑第三方 SDK。
+
+## 签退与照片上下文（2026-10-28）
+
+- 继续参考上述版本的活动关联字段、超星云盘上传字段与照片验证上下文接口。`server/sign_details.py`、`server/sign_faces.py` 与 `web/sign-face.js` 独立实现，未复制 Android 照片组件、已登记肖像提取逻辑、图像变换或官方设备证明生成代码。模型单独按下述来源引入。
+- 本项目只提交用户确认的当前照片，不将拍照等同于活体成功；人脸匹配及最终出勤结果由超星确认。离线 UI 与测试图片由本项目生成，不使用真实肖像。
+
+## 直接复用 ChaoxingSignFaker 模型（v0.7.0，2026-10-28）
+
+- 版权：Copyright (c) 2026 aquamarine5 / Brainspark。固定来源版本仍为 `0346adf72dde1d3fea5600232c575ad2211641c3`；许可证 AGPL-3.0，完整原文保留于 `licenses/ChaoxingSignFaker-AGPL-3.0.txt`。
+- `models/chaoxing-captcha/captcha.ort` 从上游 `app/src/main/assets/captcha.ort` 原样复制。Python 推理适配 `server/captcha_model.py` 依据上游 `ChaoxingCaptchaPredictor.kt`，保留预处理、阈值、NMS 和偏移规则。
+- 部分 CPU 不支持原模型 FP16 MatMul。`captcha-cpu.onnx` 由公开的 `build_cpu.py` 将同一权重与图中的 FP16 扩展为 FP32，不重新训练，不替换其他模型；数值结果不承诺与 Android 逐位相同。文件哈希、构建依赖和具体步骤见 [模型说明](models/chaoxing-captcha/README.md)。
+- 运行时依赖 [ONNX Runtime](https://github.com/microsoft/onnxruntime)（MIT）、[NumPy](https://github.com/numpy/numpy)（BSD-3-Clause），由 requirements 安装，保留发行包自带许可证；ONNX 仅用于重建兼容模型，不是正常运行依赖。
+- 新增代码与模型适配随整合项目按 AGPL-3.0 发布，根目录 `LICENSE` 更新为 AGPLv3；GPLv3 刷课引擎保留原许可及其完整正文。网页提供无需登录的源码与许可入口；部署者修改版本后须同步更新为所运行版本的对应源码。

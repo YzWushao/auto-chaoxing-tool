@@ -155,6 +155,7 @@ class GroupSignClient:
         course = {'key':'group:'+group['id'], 'courseId':str(info.get('courseId') or course_info.get('courseid') or '0'),
                   'clazzId':str(info.get('clazzid') or info.get('classId') or course_info.get('classid') or '0'), 'cpi':'', 'title':group['name']}
         return {'id':active_id, 'title':str(info.get('name') or item.get('title') or '群聊签到'), 'kind':kind,
+                'phase':'out' if str(info.get('signInId') or '').isdigit() and int(info['signInId'])>0 else 'in',
                 'photo':str(info.get('ifphoto','0'))=='1', 'course':course, 'source':'group',
                 'group_id':group['id'], 'group_name':group['name'], 'start_time':info.get('starttime'), '_group_item':{'aid':active_id, 'courseInfo':{'courseid':course['courseId'], 'classid':course['clazzId']}}}
 

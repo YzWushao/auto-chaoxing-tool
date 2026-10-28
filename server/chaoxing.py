@@ -7,6 +7,7 @@ Original copyright (c) 2021 miaochenxi; see licenses/chaoxing-sign-cli-MIT.txt.
 from __future__ import annotations
 
 import base64
+import json
 import re
 import secrets
 import threading
@@ -27,9 +28,9 @@ class SessionExpired(PlatformError):
 
 
 class SignRequirement(PlatformError):
-    def __init__(self, code, message):
+    def __init__(self, code, message, enc2=None):
         super().__init__(message)
-        self.code = code
+        self.code, self.enc2 = code, enc2
 
 
 class CaptchaRequired(PlatformError):
@@ -173,6 +174,7 @@ class ChaoxingClient:
         return list({c["key"]: c for c in result}.values())
 
     def activities(self, courses):
+        from .sign_details import KINDS, activity_id
         activities = []
         for course in courses:
             response = self.request("GET", self.SIGN_BASE + "/v2/apis/active/student/activelist", params={
@@ -185,17 +187,26 @@ class ChaoxingClient:
             if not isinstance(body, dict) or not isinstance(body.get("activeList"), list):
                 raise PlatformError("签到活动列表格式已变化，请重新登录或更新适配器")
             for item in body["activeList"]:
-                if str(item.get("status")) != "1" or str(item.get("otherId")) not in {"0", "2", "3", "4", "5"}:
+                if str(item.get("status")) != "1":
                     continue
-                # type=2 is sign-in; non-sign activities can also have otherId=0.
-                if item.get("type") is not None and str(item["type"]) != "2":
+                # Both activity formats are used by the current sign service.
+                if item.get("type") is not None and str(item["type"]) not in {"2", "74"}:
                     continue
                 if not item.get("id"):
                     continue
+                kind_id = str(item.get('otherId'))
+                info = item
+                if str(item.get('type')) == '74':
+                    from .sign_protocol import sign_info
+                    info = sign_info(self, str(item['id']))
+                    kind_id = str(info.get('otherId') if info.get('otherId') is not None else kind_id)
+                if kind_id not in KINDS:
+                    continue
                 activities.append({"id": str(item["id"]), "title": item.get("nameOne", "签到活动"),
-                                   "kind": {"0": "normal", "2": "qr", "3": "gesture", "4": "location", "5": "code"}[str(item["otherId"])],
+                                   "kind": KINDS[kind_id], 'phase': 'out' if activity_id(info.get('signInId')) else 'in',
                                    "course": course, "start_time": item.get("startTime"),
-                                   "photo": str(item.get("ifphoto", "0")) == "1"})
+                                   "photo": str(item.get("ifphoto", "0")) == "1",
+                                   '_ext': json.dumps(body.get('ext') or {}, separators=(',', ':'))})
         return list({a["id"]: a for a in activities}.values())
 
     def sign(self, activity, supplied, name):
@@ -253,6 +264,14 @@ class ChaoxingClient:
     def group_activity(self, selected):
         from .group_sign import GroupSignClient
         return GroupSignClient(self).live(selected)
+
+    def sign_requirements(self, selected):
+        from .sign_details import details
+        return details(self, selected)
+
+    def sign_confirmed(self, selected):
+        from .sign_details import confirmed
+        return confirmed(self, selected)
 
 
 class QRLogin:

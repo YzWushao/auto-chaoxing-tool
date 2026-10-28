@@ -135,7 +135,8 @@ class SignConversation:
     def show(self, qq, state):
         choices, page = state['choices'], state.get('page', 0)
         size = 12
-        title = {'account': '为谁签到？回复用户序号：', 'activity': f"{state.get('name', '')} 的签到列表，回复活动序号：", 'point': '选择你实际所在的预设点位，回复序号：'}[state['phase']]
+        action = '签退' if state.get('want_phase') == 'out' else '签到'
+        title = {'account': f'为谁{action}？回复用户序号：', 'activity': f"{state.get('name', '')} 的{action}列表，回复活动序号：", 'point': '选择你实际所在的预设点位，回复序号：'}[state['phase']]
         lines = [title]
         for i in range(page*size, min(len(choices), (page+1)*size)):
             item = choices[i]
@@ -143,8 +144,10 @@ class SignConversation:
                 label = item['name'] + ('（登录失效）' if item['status'] != 'active' else '')
             elif state['phase'] == 'activity':
                 mode = '拍照（请用网页）' if item.get('photo') else KINDS.get(item['kind'], '请用网页')
+                if item.get('phase') == 'out':
+                    mode = '签退 · '+mode
                 origin = '课程/群聊' if item.get('from_group') else '群聊' if item.get('source') == 'group' else '课程'
-                label = f"[{origin}] {item['course']['title']} · {item['title']} [{mode}]" + ('（已签到）' if item['signed'] else '')
+                label = f"[{origin}] {item['course']['title']} · {item['title']} [{mode}]" + (('（已签退）' if item.get('phase')=='out' else '（已签到）') if item['signed'] else '')
             else:
                 label = item['school'] + ' · ' + item['name']
             lines.append(f'{i+1}. {label[:200]}')
@@ -187,14 +190,14 @@ class SignConversation:
             self.sessions.pop(qq, None)
             self.send(qq, '已取消本次签到会话。')
             return
-        if text == '签到':
+        if text in {'签到', '签退'}:
             mode = self.store.preferences(self.owner)['account_label']
             choices = [{'id': a['id'], 'owner': a['owner'], 'name': account_label(a, mode), 'status': a['status']} for a in self.accounts()]
             self.sessions.pop(qq, None)
             if not choices:
                 self.send(qq, '还没有超星用户，请先在网页控制台添加并登录。')
                 return
-            state = {'phase': 'account', 'choices': choices, 'touched': now, 'page': 0}
+            state = {'phase': 'account', 'choices': choices, 'touched': now, 'page': 0, 'want_phase': 'out' if text=='签退' else 'all'}
             self.sessions[qq] = state
             self.show(qq, state)
             return
@@ -224,6 +227,8 @@ class SignConversation:
                         raise ValueError('用户已移除，请重新发送“签到”')
                     self.send(qq, '正在刷新该用户的课程签到列表…')
                     activities = self.signing.refresh(item['owner'], item['id'])
+                    if state.get('want_phase') == 'out':
+                        activities = [a for a in activities if a.get('phase') == 'out']
                     warnings = self.signing.warnings.get((item['owner'], item['id'], 'all'), [])
                     if warnings:
                         self.send(qq, '\n'.join(warnings))
@@ -237,7 +242,7 @@ class SignConversation:
                     return
                 if state['phase'] == 'activity':
                     if item['signed']:
-                        self.send(qq, '该活动已签到，无需重复提交。可选择其他活动或回复“签到”。')
+                        self.send(qq, '该活动已完成，无需重复提交。可选择其他活动或回复“签到”。')
                         return
                     if item.get('photo') or item['kind'] not in {'normal', 'qr', 'location'}:
                         self.send(qq, '该活动需要拍照、手势或签到码，请在网页端处理；也可选择其他活动。')

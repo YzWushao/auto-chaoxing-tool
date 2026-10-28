@@ -1,8 +1,4 @@
-"""Independent slide-challenge adapter. Tokens and images remain transient.
-
-The HTTP field names follow Chaoxing's observed slide protocol. No Android
-implementation or prediction model is bundled. Pillow supplies image masks.
-"""
+"""Slide-challenge protocol adapter; original-model inference is local and transient."""
 import base64
 import hashlib
 import io
@@ -98,52 +94,8 @@ def public_challenge(value, nonce):
 
 
 def predict_offset(value):
-    """Find an isolated muted gap with the piece's size; abstain if ambiguous."""
-    from collections import deque
-    with Image.open(io.BytesIO(value['background'])) as original, Image.open(io.BytesIO(value['piece'])) as cutout:
-        scale = min(1, 320/original.width)
-        bg = original.convert('RGB').resize((round(original.width*scale), round(original.height*scale)))
-        piece = cutout.convert('RGBA').resize((round(cutout.width*scale), round(cutout.height*scale)))
-        alpha = piece.getchannel('A').point(lambda a: 255 if a > 180 else 0)
-        box = alpha.getbbox()
-        if not box:
-            return None
-        pw, ph = box[2]-box[0], box[3]-box[1]
-        area = alpha.histogram()[255]
-        if pw < 12 or ph < 12 or area < 100:
-            return None
-        pixels = bg.load()
-        eligible = set()
-        for y in range(bg.height):
-            for x in range(bg.width):
-                color = pixels[x, y]
-                if max(color)-min(color) < 32 and 35 < sum(color)/3 < 165:
-                    eligible.add((x, y))
-        proposals = []
-        while eligible:
-            seed = eligible.pop()
-            pending, points = deque([seed]), [seed]
-            while pending:
-                x, y = pending.popleft()
-                for adjacent in ((x-1,y),(x+1,y),(x,y-1),(x,y+1)):
-                    if adjacent in eligible:
-                        eligible.remove(adjacent)
-                        pending.append(adjacent)
-                        points.append(adjacent)
-            if len(points) < area*0.3:
-                continue
-            xs, ys = zip(*points)
-            left, top, right, bottom = min(xs), min(ys), max(xs)+1, max(ys)+1
-            width, height = right-left, bottom-top
-            if not (pw*0.65 <= width <= pw*1.3 and ph*0.3 <= height <= ph*1.3):
-                continue
-            offset = round((left-box[0])/scale)
-            if 0 <= offset <= value['width']-value['piece_width']:
-                proposals.append((len(points), offset))
-        proposals.sort(reverse=True)
-        if not proposals or (len(proposals)>1 and proposals[0][0] < proposals[1][0]*1.6):
-            return None
-        return proposals[0][1]
+    from .captcha_model import model
+    return model.predict(value)
 
 def check_challenge(client, value, x):
     if type(x) is not int or not 0 <= x <= value['width']-value['piece_width']:

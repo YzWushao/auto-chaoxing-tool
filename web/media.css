@@ -16,4 +16,5 @@
 .credit-grid article h3 { font-size:14px; }
 .credit-grid a, .credits a { color:#6e52d9; }
 .credit-grid p, .credit-grid small { color:#7a8192; line-height:1.8; }
+.credits .actions { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; }
 @media(max-width:640px) { .credit-grid { grid-template-columns:1fr; } .media-heading { align-items:flex-start; } }

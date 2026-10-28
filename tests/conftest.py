@@ -36,6 +36,14 @@ class FakeClient:
         type(self).sign_calls += 1
         return "签到成功（离线测试）"
 
+    def sign_requirements(self, activity):
+        return {'phase': activity.get('phase', 'in'), 'needs_face': False, 'needs_location': False, 'needs_captcha': False,
+                'sign_in_id': None, 'sign_out_id': None, 'sign_out_publish_at': None, 'photo': False,
+                'official_url': 'https://mobilelearn.chaoxing.com/newsign/preSign?activePrimaryId='+activity['id']}
+
+    def sign_confirmed(self, activity):
+        return False
+
 
 @pytest.fixture
 def app(tmp_path):

@@ -13,7 +13,7 @@ from unittest.mock import patch
 from waitress import serve
 
 from server.app import create_app
-from server.chaoxing import PlatformError, CaptchaRequired
+from server.chaoxing import PlatformError, CaptchaRequired, SignRequirement
 from tests.conftest import FakeClient
 
 
@@ -35,14 +35,25 @@ class PreviewClient(FakeClient):
                 {"id": "903", "title": "位置签到（离线测试）", "kind": "location",
                  "course": courses[0], "photo": False, "start_time": None},
                 {"id": "904", "title": "滑块验证（离线测试）", "kind": "normal",
-                 "course": courses[0], "photo": False, "start_time": None}]
+                 "course": courses[0], "photo": False, "start_time": None},
+                {'id':'905','title':'关联签退（离线测试）','kind':'normal','phase':'out','course':courses[0],'photo':False,'start_time':None},
+                {'id':'906','title':'本人照片验证（离线测试）','kind':'normal','course':courses[0],'photo':False,'start_time':None}]
+
+    def sign_requirements(self, activity):
+        return {**super().sign_requirements(activity),'needs_face':activity['id']=='906',
+                'sign_in_id':'901' if activity['id']=='905' else None,
+                'sign_out_id':'905' if activity['id']=='901' else None,
+                'needs_captcha':activity['id']=='904','needs_location':activity['id'] in {'902','903'}}
 
     def sign(self, activity, supplied, name):
+        if activity['id']=='906' and not supplied.get('_face'):
+            raise SignRequirement('face_required','请准备本人照片（离线模拟）')
         if activity['id']=='904' and not supplied.get('_verification'):
             from tests.test_sign_verification import challenge
             raise CaptchaRequired(challenge(), 'offline-enc2')
         if 'EXPIRED_TEST_TOKEN' in str(supplied.get('qr', '')):
             raise PlatformError('签到未成功：二维码已过期（离线模拟）')
+        if activity.get('phase')=='out':return '签退成功（离线测试）'
         return super().sign(activity, supplied, name)
 
 
@@ -66,5 +77,5 @@ if __name__ == "__main__":
         return original_popen([*args[:-1], "tests.ui_media_worker"], **kwargs)
 
     from tests.test_sign_verification import challenge
-    with patch("server.tasks.subprocess.Popen", offline_worker), patch('server.sign_captcha.check_challenge', lambda *args: 'offline-preview-proof'), patch('server.sign_captcha.create_challenge', lambda *args: challenge()):
+    with patch("server.tasks.subprocess.Popen", offline_worker), patch('server.sign_captcha.check_challenge', lambda *args: 'offline-preview-proof'), patch('server.sign_captcha.create_challenge', lambda *args: challenge()), patch('server.sign_faces.upload_photo', lambda *args:'offline-photo-object'), patch('server.sign_faces.face_context',lambda *args:{'object_id':'offline-photo-object','enc':'offline-face-context'}):
         serve(app, host="127.0.0.1", port=8766, threads=4)

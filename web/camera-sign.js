@@ -1,7 +1,7 @@
 /* Browser-owned camera session. Only decoded QR text is sent to our sign API. */
 'use strict';
 const cameraSession={running:false,starting:false,generation:0,stream:null,worker:null,timer:null,decodeTimer:null,
-  decoding:false,frameAt:0,latest:null,queue:null,busy:false,nextAt:0,verification:null,requirement:null,proof:null,mode:'camera',imageAbort:null,message:'选择用户后，点击按钮申请摄像头权限。',scanMessage:'尚未识别签到二维码'};
+  decoding:false,frameAt:0,latest:null,queue:null,busy:false,nextAt:0,verification:null,requirement:null,proof:null,faceProof:null,faceTarget:null,facePaused:false,mode:'camera',imageAbort:null,message:'选择用户后，点击按钮申请摄像头权限。',scanMessage:'尚未识别签到二维码'};
 
 function cameraSignEntry(){
   return `<section class="notice purple"><b>连续扫码签到</b><p>选择用户，使用本设备摄像头持续识别二维码，按队列逐个提交并显示结果。</p><a class="button secondary small" href="#sign-camera">进入摄像头扫码签到 →</a></section>`;
@@ -10,19 +10,21 @@ function cameraSignEntry(){
 function cameraSignPage(){
   if(!cameraSession.queue)cameraSession.message='选择用户后，点击按钮申请摄像头权限。';
   return heading('摄像头扫码签到','选择本次需要签到的用户，然后将摄像头对准签到二维码。','<a class="button secondary" href="#sign">返回签到中心</a>')+
-  `<div id="camera-sign-root"><div class="camera-layout"><section class="panel"><div class="panel-header"><h3>1 · 选择用户</h3><span class="badge purple">按列表顺序提交</span></div><div class="panel-body"><div class="actions">${button('全选','camera-select-all','secondary small')}${button('清空','camera-select-none','secondary small')}</div><div class="camera-choice-list">${state.accounts.map(a=>`<label class="camera-choice"><input type="checkbox" name="camera-user" value="${esc(a.id)}"><span>${esc(a.name)}${a.status==='expired'?'<small>登录已失效，请先重新登录</small>':''}</span></label>`).join('')||'<p class="muted">请先在用户管理中添加超星账户。</p>'}</div><p class="setting-note">失败超过 10 次即本轮第 11 次失败后，移至待处理队列末尾，再处理下一位；成功用户退出队列。失败用户轮到时重新计数，累计失败仍保留。</p><div class="field"><label for="camera-location">二维码附加位置（按需选择实际所在点位）</label><select id="camera-location"><option value="">不提交位置</option>${(state.location_presets||[]).flatMap(s=>s.points.map(p=>`<option value="${esc(JSON.stringify([s.school,p.name]))}">${esc(s.school+' · '+p.name)}</option>`)).join('')}</select></div><div class="camera-control"><select id="camera-facing" aria-label="优先使用的摄像头"><option value="environment">后置摄像头优先</option><option value="user">前置摄像头优先</option></select>${button('启动摄像头并开始','camera-start','primary')}${button('停止并释放摄像头','camera-stop','secondary')}${button('处理后继续重试','camera-resume','secondary')}${button('从相册识别并开始','camera-image','secondary')}<input id="camera-image-file" type="file" class="hidden" accept="image/png,image/jpeg,image/webp"></div><p id="camera-error" class="inline-error" role="alert"></p><p class="setting-note camera-help">摄像头画面只在本设备内识别，不录制、不上传。启动即按选择的用户自动提交；滑块验证可在此完成；人脸等官方验证需在官方客户端处理。停止、离开页面、切到后台或全部完成时关闭摄像头；已发出的请求仍会返回结果。</p><div class="notice camera-help">远程实时摄像头需通过 HTTPS 访问，相册扫码可直接使用当前地址。本机可使用 localhost / 127.0.0.1；普通 HTTP 的局域网或 P2P IP 无法申请摄像头权限。</div></div></section><section class="panel"><div class="panel-header"><h3>2 · 持续扫码</h3><span id="camera-live-badge" class="badge">摄像头未开启</span></div><div class="panel-body"><div class="camera-preview"><video id="sign-camera-video" autoplay muted playsinline aria-label="本设备摄像头预览"></video><p>允许摄像头后，将签到二维码置于画面中央。</p><img id="camera-image-preview" class="camera-photo hidden" alt="本地二维码图片预览"></div><div id="camera-hardware" class="camera-hardware hidden"><label id="camera-torch-wrap" class="hidden"><input type="checkbox" id="camera-torch">补光灯</label><label id="camera-zoom-wrap" class="hidden">变焦 <input type="range" id="camera-zoom" min="1" max="1" step="0.1" value="1" aria-label="摄像头变焦"></label></div><p id="camera-scan-status" class="setting-note" role="status"></p><div id="camera-status" class="camera-status" role="status" aria-live="polite"></div><div id="camera-verification"></div><div id="camera-summary" class="camera-summary"></div><ol id="camera-queue" class="camera-queue" aria-label="签到队列"></ol></div></section></div></div>`;
+  `<div id="camera-sign-root"><div class="camera-layout"><section class="panel"><div class="panel-header"><h3>1 · 选择用户</h3><span class="badge purple">按列表顺序提交</span></div><div class="panel-body"><div class="actions">${button('全选','camera-select-all','secondary small')}${button('清空','camera-select-none','secondary small')}</div><div class="camera-choice-list">${state.accounts.map(a=>`<label class="camera-choice"><input type="checkbox" name="camera-user" value="${esc(a.id)}"><span>${esc(a.name)}${a.status==='expired'?'<small>登录已失效，请先重新登录</small>':''}</span></label>`).join('')||'<p class="muted">请先在用户管理中添加超星账户。</p>'}</div><p class="setting-note">失败超过 10 次即本轮第 11 次失败后，移至待处理队列末尾，再处理下一位；成功用户退出队列。失败用户轮到时重新计数，累计失败仍保留。</p><div class="field"><label for="camera-location">二维码附加位置（按需选择实际所在点位）</label><select id="camera-location"><option value="">不提交位置</option>${(state.location_presets||[]).flatMap(s=>s.points.map(p=>`<option value="${esc(JSON.stringify([s.school,p.name]))}">${esc(s.school+' · '+p.name)}</option>`)).join('')}</select></div><div class="camera-control"><select id="camera-facing" aria-label="优先使用的摄像头"><option value="environment">后置摄像头优先</option><option value="user">前置摄像头优先</option></select>${button('启动摄像头并开始','camera-start','primary')}${button('停止并释放摄像头','camera-stop','secondary')}${button('处理后继续重试','camera-resume','secondary')}${button('准备当前用户照片','camera-face','secondary')}${button('核对官方完成结果','camera-confirm','secondary')}${button('从相册识别并开始','camera-image','secondary')}<input id="camera-image-file" type="file" class="hidden" accept="image/png,image/jpeg,image/webp"></div><p id="camera-error" class="inline-error" role="alert"></p><p class="setting-note camera-help">扫码画面只在本设备内识别，不录制、不上传；本人照片仅在单独确认后发送超星。启动即按选择的用户自动提交；滑块验证可在此完成；人脸可准备本人照片；官方活体或设备校验需转官方处理。停止、离开页面、切到后台或全部完成时关闭摄像头；已发出的请求仍会返回结果。</p><div class="notice camera-help">远程实时摄像头需通过 HTTPS 访问，相册扫码可直接使用当前地址。本机可使用 localhost / 127.0.0.1；普通 HTTP 的局域网或 P2P IP 无法申请摄像头权限。</div></div></section><section class="panel"><div class="panel-header"><h3>2 · 持续扫码</h3><span id="camera-live-badge" class="badge">摄像头未开启</span></div><div class="panel-body"><div class="camera-preview"><video id="sign-camera-video" autoplay muted playsinline aria-label="本设备摄像头预览"></video><p>允许摄像头后，将签到二维码置于画面中央。</p><img id="camera-image-preview" class="camera-photo hidden" alt="本地二维码图片预览"></div><div id="camera-hardware" class="camera-hardware hidden"><label id="camera-torch-wrap" class="hidden"><input type="checkbox" id="camera-torch">补光灯</label><label id="camera-zoom-wrap" class="hidden">变焦 <input type="range" id="camera-zoom" min="1" max="1" step="0.1" value="1" aria-label="摄像头变焦"></label></div><p id="camera-scan-status" class="setting-note" role="status"></p><div id="camera-status" class="camera-status" role="status" aria-live="polite"></div><div id="camera-verification"></div><div id="camera-summary" class="camera-summary"></div><ol id="camera-queue" class="camera-queue" aria-label="签到队列"></ol></div></section></div></div>`;
 }
 
 function renderCameraStatus(){
   const root=$('#camera-sign-root');if(!root)return;
-  const c=cameraSession,q=c.queue,locked=c.running||c.starting||c.busy;
+  const c=cameraSession,q=c.queue,locked=c.running||c.starting||c.busy||c.facePaused;
   $$('[name="camera-user"],#camera-facing,[data-action="camera-select-all"],[data-action="camera-select-none"]',root).forEach(el=>el.disabled=locked);
   $('[data-action="camera-start"]',root).disabled=locked;
-  $('[data-action="camera-stop"]',root).disabled=!(c.running||c.starting);
-  $('[data-action="camera-image"]',root).disabled=c.starting||(c.busy&&!c.running)||(c.running&&c.mode!=='image');
+  $('[data-action="camera-stop"]',root).disabled=!(c.running||c.starting||c.facePaused);
+  $('[data-action="camera-image"]',root).disabled=c.facePaused||c.starting||(c.busy&&!c.running)||(c.running&&c.mode!=='image');
   $('[data-action="camera-image"]',root).textContent=c.running&&c.mode==='image'?'更新二维码图片':'从相册识别并开始';
-  $('[data-action="camera-resume"]',root).disabled=!c.running||!c.requirement;
-  $('#camera-live-badge').textContent=c.starting?'正在启动 / 识别':c.running?(c.mode==='image'?'相册扫码中':'摄像头已开启'):'摄像头未开启';
+  $('[data-action="camera-resume"]',root).disabled=!c.facePaused&&(!c.running||!c.requirement);
+  $('[data-action="camera-face"]',root).disabled=c.busy||!c.faceTarget||!['face_required','official_face_required'].includes(c.requirement);
+  $('[data-action="camera-confirm"]',root).disabled=c.busy||!c.faceTarget||!q?.current;
+  $('#camera-live-badge').textContent=c.facePaused?'扫码镜头已暂时释放':c.starting?'正在启动 / 识别':c.running?(c.mode==='image'?'相册扫码中':'摄像头已开启'):'摄像头未开启';
   $('#camera-live-badge').className='badge'+(c.running?' green':'');
   $('#camera-status').textContent=c.message;
   $('#camera-scan-status').textContent=(q?.activityId?`本次活动 ${q.activityId} · `:'')+c.scanMessage;
@@ -35,7 +37,7 @@ function closeSignCamera(message){
   const c=cameraSession;
   c.running=false;c.starting=false;c.generation++;clearTimeout(c.timer);clearTimeout(c.decodeTimer);
   c.worker?.terminate();c.worker=null;c.decoding=false;c.latest=null;
-  c.imageAbort?.abort();c.imageAbort=null;c.verification=null;c.requirement=null;c.proof=null;clearSignVerification('camera');
+  c.imageAbort?.abort();c.imageAbort=null;c.verification=null;c.requirement=null;c.proof=null;c.faceProof=null;c.faceTarget=null;c.facePaused=false;closeSignFace('camera');clearSignVerification('camera');
   const photo=$('#camera-image-preview');if(photo){photo.removeAttribute('src');photo.classList.add('hidden');}
   c.stream?.getTracks().forEach(track=>track.stop());c.stream=null;
   const video=$('#sign-camera-video');if(video){video.pause();video.srcObject=null;delete video.dataset.live;}
@@ -48,16 +50,16 @@ function cameraError(error){
   return ({NotAllowedError:'摄像头权限未获允许，请在浏览器站点设置中允许后重试。',NotFoundError:'未找到可用摄像头，请检查设备连接。',NotReadableError:'摄像头无法启动，可能正被其他程序占用。',OverconstrainedError:'当前摄像头不支持所需画面，请切换摄像头后重试。',SecurityError:'浏览器禁止使用摄像头，请检查 HTTPS 与站点权限。'})[error.name]||'摄像头无法启动，请检查浏览器权限和设备连接。';
 }
 
-async function startSignCamera(){
+async function startSignCamera(resume=false){
   const c=cameraSession;if(c.running||c.starting||c.busy)return;
-  const selected=new Set($$('[name="camera-user"]:checked').map(el=>el.value));
+  const selected=new Set(resume&&c.queue?c.queue.entries.map(a=>a.id):$$('[name="camera-user"]:checked').map(el=>el.value));
   $('#camera-error').textContent='';
   if(!selected.size){$('#camera-error').textContent='请至少选择一个需要签到的用户。';return;}
   if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){$('#camera-error').textContent='当前地址无法使用摄像头。请通过 HTTPS 访问，或在运行服务的本机使用 localhost / 127.0.0.1。';return;}
-  closeSignCamera();
+  if(!resume)closeSignCamera();else{c.generation++;c.facePaused=false;c.latest=null;}
   const accounts=state.accounts.filter(a=>selected.has(a.id));
   if(!accounts.length){$('#camera-error').textContent='所选用户已被移除，请刷新页面后重新选择。';return;}
-  c.queue=new SignCameraQueue.Queue(accounts);
+  if(!resume)c.queue=new SignCameraQueue.Queue(accounts);
   c.mode='camera';
   c.starting=true;c.message='等待浏览器摄像头权限，请选择允许。';c.scanMessage='尚未识别签到二维码';
   const generation=c.generation;renderCameraStatus();
@@ -111,12 +113,14 @@ async function submitCameraNext(generation){
   c.busy=true;c.message=`正在为 ${entry.name} 提交签到。`;renderCameraStatus();
   try{
     const payload={qr:qr.raw};if(c.proof?.account===entry.id)payload.verification_id=c.proof.id;
+    if(c.faceProof?.account===entry.id)payload.face_id=c.faceProof.id;
     const location=$('#camera-location')?.value;if(location){const [school,name]=JSON.parse(location);payload.location={school,name};}
     const result=await api(`/accounts/${encodeURIComponent(entry.id)}/camera-sign`,'POST',payload);
-    q.finish(true,result.message);c.proof=null;c.message=`${entry.name}：${result.message}`;c.nextAt=Date.now()+500;
+    q.finish(true,result.message);c.proof=null;c.faceProof=null;c.faceTarget=null;c.message=`${entry.name}：${result.message}`;c.nextAt=Date.now()+500;
   }catch(error){
+    if(error.status===400){c.faceProof=null;c.proof=null;}
     if(error.code==='verification_required'&&error.verification){q.defer('等待滑块验证');c.verification={account:entry.id};c.proof=null;c.message=error.message;showSignVerification('camera',entry.id,error.verification);}
-    else if(error.status===422&&['face_required','location_required'].includes(error.code)){q.defer(error.message);c.requirement=error.code;c.message=error.message+'；处理后点击“处理后继续重试”。';}
+    else if(error.status===422&&['face_required','official_face_required','location_required'].includes(error.code)){q.defer(error.message);c.requirement=error.code;c.message=error.message+'；处理后点击“处理后继续重试”。';if(error.code!=='location_required'){c.faceProof=null;c.faceTarget=error.activity||{id:q.activityId,source:'course'};}}
     else if(error.status===429){q.defer(error.message);c.message=error.message;}
     else{
       const outcome=q.finish(false,error.message);
@@ -130,6 +134,24 @@ async function submitCameraNext(generation){
     if(c.running&&q.done)closeSignCamera('所选用户已全部签到，摄像头已关闭。');
     renderCameraStatus();
   }
+}
+
+function suspendCameraForFace(){
+  const c=cameraSession;c.facePaused=true;c.running=false;c.generation++;clearTimeout(c.timer);clearTimeout(c.decodeTimer);c.worker?.terminate();c.worker=null;c.decoding=false;
+  if(c.mode!=='image')c.latest=null;
+  c.stream?.getTracks().forEach(t=>t.stop());c.stream=null;
+  const video=$('#sign-camera-video');if(video){video.pause();video.srcObject=null;delete video.dataset.live;}
+  $('#camera-hardware')?.classList.add('hidden');
+  renderCameraStatus();
+}
+function resumeCameraAfterFace(){
+  const c=cameraSession;if(!c.facePaused)return;
+  if(['face_required','official_face_required'].includes(c.requirement)&&!c.faceProof){toast('请先准备当前用户照片，或核对官方完成结果。',true);return;}
+  closeSignFace('camera');c.requirement=null;
+  if(c.mode==='image'){
+    c.facePaused=false;c.running=true;c.generation++;const generation=c.generation;
+    const tick=()=>{if(!c.running||generation!==c.generation)return;c.timer=setTimeout(tick,350);void submitCameraNext(generation);};tick();renderCameraStatus();
+  }else void startSignCamera(true);
 }
 
 function configureCameraHardware(track){
@@ -169,7 +191,9 @@ document.addEventListener('click',event=>{
   if(action==='camera-start')void startSignCamera();
   if(action==='camera-stop')closeSignCamera('已停止并释放摄像头。');
   if(action==='camera-image')$('#camera-image-file').click();
-  if(action==='camera-resume'){cameraSession.requirement=null;cameraSession.message='等待二维码后继续当前用户。';renderCameraStatus();}
+  if(action==='camera-resume'){if(cameraSession.facePaused)return resumeCameraAfterFace();cameraSession.requirement=null;cameraSession.message='等待二维码后继续当前用户。';renderCameraStatus();}
+  if(action==='camera-face'){const c=cameraSession,target=c.faceTarget;if(target&&c.queue?.current)showSignFace('camera',c.queue.current.id,target.id,target.source);}
+  if(action==='camera-confirm'){const c=cameraSession,info=c.faceTarget;if(info&&c.queue?.current)void busy(target,()=>confirmSignResult(c.queue.current.id,info.id,info.source,'camera'));}
   if(action==='camera-select-all'||action==='camera-select-none'){
     if(cameraSession.running||cameraSession.starting||cameraSession.busy)return;
     $$('[name="camera-user"]').forEach(el=>el.checked=action==='camera-select-all');

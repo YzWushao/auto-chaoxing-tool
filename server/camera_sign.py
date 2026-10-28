@@ -2,6 +2,7 @@
 import re
 import time
 from urllib.parse import parse_qs, urlsplit
+from .chaoxing import SignRequirement
 
 
 class CameraRateLimit(ValueError):
@@ -27,13 +28,13 @@ class CameraSignService:
         self.discovery = {}
         self.last_attempt = {}
 
-    def submit(self, owner, account_id, raw, verification_id=None, location=None):
+    def submit(self, owner, account_id, raw, verification_id=None, location=None, face_id=None):
         activity_id, enc = qr_parameters(raw)
         key = (owner, account_id)
         with self.signing.locks[account_id]:
             self.signing.account(owner, account_id)
             if self.signing.store.signed(owner, account_id, activity_id):
-                return {'message': '该活动已签到，无需重复提交', 'duplicate': True, 'activity_id': activity_id}
+                return {'message': '该活动已完成，无需重复提交', 'duplicate': True, 'activity_id': activity_id}
             now = time.monotonic()
             if now - self.last_attempt.get(key, -100) < 2:
                 raise CameraRateLimit('请稍候再重试，单个用户的请求至少间隔 2 秒')
@@ -50,7 +51,7 @@ class CameraSignService:
             if selected['kind'] != 'qr' or selected.get('photo'):
                 raise ValueError('此活动不是单独的二维码签到，请在普通签到页面处理')
             parameters = {'activity_id': activity_id, 'source': selected['source'], 'kind': 'qr', 'qr': enc,
-                          '_detected_kind': 'qr', 'verification_id': verification_id}
+                          '_detected_kind': 'qr', 'verification_id': verification_id, 'face_id': face_id}
             if location:
                 if not isinstance(location, dict) or set(location) != {'school', 'name'} or not all(isinstance(v, str) for v in location.values()):
                     raise ValueError('预设位置选择无效')
@@ -60,5 +61,9 @@ class CameraSignService:
                     raise ValueError('预设点位已变更或移除，请重新选择')
                 from .sign_coordinates import location_parameters
                 parameters.update(location_parameters(point))
-            result = self.signing.submit(owner, account_id, parameters)
-            return {**result, 'activity_id': activity_id, 'title': selected['title']}
+            try:
+                result = self.signing.submit(owner, account_id, parameters)
+            except SignRequirement as error:
+                error.activity = {'id': activity_id, 'source': selected['source'], 'phase': selected.get('phase', 'in')}
+                raise
+            return {**result, 'activity_id': activity_id, 'title': selected['title'], 'source': selected['source'], 'phase': selected.get('phase', 'in')}

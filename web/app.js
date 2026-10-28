@@ -20,7 +20,7 @@ async function api(path, method='GET', data, options={}) {
   try { payload = await response.json(); } catch { throw new Error('服务器返回了异常响应，请检查服务是否运行'); }
   if (!response.ok) {
     if (response.status === 401 && path !== '/admin/login') { state.authenticated = false; showLogin(); }
-    const error=new Error(payload.error || `请求失败 (${response.status})`);error.status=response.status;error.code=payload.code;error.verification=payload.verification;throw error;
+    const error=new Error(payload.error || `请求失败 (${response.status})`);error.status=response.status;error.code=payload.code;error.verification=payload.verification;error.activity=payload.activity;throw error;
   }
   return payload;
 }
@@ -44,6 +44,7 @@ function heading(title, subtitle, actions='') { return `<div class="page-heading
 function button(label, action, cls='secondary', symbol='', extra='') { return `<button type="button" class="button ${cls}" data-action="${action}" ${extra}>${symbol?icon(symbol):''}${esc(label)}</button>`; }
 
 function showLogin() {
+  closeSignFace();
   closeSignCamera('控制台会话已结束，摄像头已关闭。');
   $('#loading').classList.add('hidden'); $('#app-screen').classList.add('hidden'); $('#login-screen').classList.remove('hidden');
   closeAccountLogin();
@@ -119,6 +120,7 @@ async function bootstrap() {
 }
 
 function resetConsole() {
+  closeSignFace();
   closeSignCamera('控制台会话已结束，摄像头已关闭。');
   state.authenticated=false; state.admin=null; closeAccountLogin();
   state.accounts=[]; state.jobs=[]; state.events=[]; state.location_presets=[]; state.map_settings=null; state.napcat_settings=null; state.napcat_status=null; state.active=''; state.selection={}; state.courses={}; state.activities={}; state.logJob=null; state.logAfter=0;
@@ -229,7 +231,21 @@ function timingNotice(duration) {
 }
 
 function creditsPanel() {
-  return `<section class="panel credits"><div class="panel-header"><h3>开源来源与致谢</h3><a class="text-button" href="/legal/sources" target="_blank" rel="noopener noreferrer">完整引用与修改记录 ↗</a></div><div class="panel-body"><p>本项目直接复用刷课引擎，并参考签到项目的接口流程进行 Python 适配。感谢两个项目的作者与贡献者。</p><div class="credit-grid"><article><h3><a href="https://github.com/Samueli924/chaoxing" target="_blank" rel="noopener noreferrer">Samueli924/chaoxing ↗</a></h3><p>刷课引擎及资源 · GPL-3.0</p><small>参考版本 45d2106 · 修改日期 2026-10-23</small></article><article><h3><a href="https://github.com/Yink-Design/chaoxing-sign-cli" target="_blank" rel="noopener noreferrer">Yink-Design/chaoxing-sign-cli ↗</a></h3><p>签到接口流程参考 · MIT</p><small>Copyright (c) 2021 miaochenxi · 参考版本 4084545</small></article></div><p class="setting-note">本地二维码图片识别使用 <a href="https://github.com/cozmo/jsQR" target="_blank" rel="noopener noreferrer">jsQR 1.4.0</a>，<a href="/legal/jsqr" target="_blank" rel="noopener noreferrer">Apache-2.0 许可证</a>；图片不上传第三方。</p><p class="setting-note">本整合项目按 GPLv3 授权，按原样提供，不附带担保。原项目的版权和许可声明予以保留。</p><div class="actions"><a class="text-button" href="/legal/license" target="_blank" rel="noopener noreferrer">GPLv3 许可证</a><a class="text-button" href="/legal/sign-mit" target="_blank" rel="noopener noreferrer">签到上游 MIT 许可证</a><a class="text-button" href="/legal/notice" target="_blank" rel="noopener noreferrer">版权与引用声明</a></div></div></section>`;
+  const model=state.system?.captcha_model;
+  const reasons={runtime_missing:'缺少推理依赖',model_missing:'缺少模型文件',model_hash_mismatch:'模型校验失败',model_shape_mismatch:'模型格式不匹配',model_load_failed:'模型加载失败'};
+  const modelState=model?.available ? `已启用 · ${model.format==='ort'?'原始 ORT':'同权重 FP32 CPU 兼容版'}` : `${reasons[model?.reason]||'模型尚未就绪'}，使用手动滑块`;
+  return `<section class="panel credits">
+    <div class="panel-header"><h3>开源来源与致谢</h3><a class="text-button" href="/legal/sources" target="_blank" rel="noopener noreferrer">完整引用与修改记录 ↗</a></div>
+    <div class="panel-body"><p>本项目复用刷课引擎及滑块模型，并参考签到项目的接口流程进行 Python 适配。感谢原作者与贡献者。</p>
+      <div class="credit-grid">
+        <article><h3><a href="https://github.com/Samueli924/chaoxing" target="_blank" rel="noopener noreferrer">Samueli924/chaoxing ↗</a></h3><p>刷课引擎及资源 · GPL-3.0</p><small>参考版本 45d2106 · 修改日期 2026-10-23</small></article>
+        <article><h3><a href="https://github.com/Yink-Design/chaoxing-sign-cli" target="_blank" rel="noopener noreferrer">Yink-Design/chaoxing-sign-cli ↗</a></h3><p>签到接口流程参考 · MIT</p><small>Copyright (c) 2021 miaochenxi · 参考版本 4084545</small></article>
+        <article><h3><a href="https://github.com/aquamarine5/ChaoxingSignFaker" target="_blank" rel="noopener noreferrer">ChaoxingSignFaker ↗</a></h3><p>原项目滑块模型与推理流程 · AGPL-3.0</p><small>aquamarine5 / Brainspark · 参考版本 0346adf</small><p>${esc(modelState)}</p><a href="/legal/captcha-model" target="_blank" rel="noopener noreferrer">模型来源、校验与重建说明 ↗</a></article>
+      </div>
+      <p class="setting-note">本地二维码图片识别使用 <a href="https://github.com/cozmo/jsQR" target="_blank" rel="noopener noreferrer">jsQR 1.4.0</a>，<a href="/legal/jsqr" target="_blank" rel="noopener noreferrer">Apache-2.0 许可证</a>；图片不上传第三方识别平台。滑块模型在后台本机运行，预测结果仍需超星验证接受。</p>
+      <p class="setting-note">新增代码及模型适配按 AGPLv3 授权，原项目的版权和许可声明予以保留。刷课引擎保持 GPLv3。部署修改版本时，请提供运行版本的完整对应源码。</p>
+      <div class="actions"><a class="text-button" href="https://github.com/YzWushao/auto-chaoxing-tool" target="_blank" rel="noopener noreferrer">获取完整源码 ↗</a><a class="text-button" href="/legal/license" target="_blank" rel="noopener noreferrer">AGPLv3 许可证</a><a class="text-button" href="/legal/study-gpl" target="_blank" rel="noopener noreferrer">刷课引擎 GPLv3</a><a class="text-button" href="/legal/sign-mit" target="_blank" rel="noopener noreferrer">签到上游 MIT</a><a class="text-button" href="/legal/notice" target="_blank" rel="noopener noreferrer">版权与引用声明</a></div>
+    </div></section>`;
 }
 
 function configPage() {
@@ -254,15 +270,16 @@ function signPage() {
   if(state.signWarnings?.[key]?.length&&!list?.length)return prefix;
   return prefix+
     `<div class="notice purple">选择活动后填写所需参数并提交。也可在设置启用 QQ 签到，通过 NapCat 私聊选择用户、选择活动并上传二维码或选择预设点位。</div>`+
-    (!list?`<section class="panel">${empty('查看当前签到活动','点击“刷新活动”，获取当前用户的有效签到列表。','','sign')}</section>`:!list.length?`<section class="panel">${empty('暂时没有进行中的签到','请确认当前用户，或在老师发布签到后刷新。','','sign')}</section>`:`<div class="sign-grid">${list.map(a=>`<article class="sign-card"><div class="card-top"><span class="course-icon">${icon('sign')}</span><span class="badge ${a.signed?'green':'purple'}">${a.signed?'已签到':esc(kindLabels[a.photo?'photo':a.kind]||'签到活动')}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.course.title)}</p><p>活动编号 ${esc(a.id)}</p>${button(a.signed?'已签到':a.kind==='qr'&&!a.photo?'上传二维码 / 填写':'填写并签到','sign-open',a.signed?'secondary':'primary','',`data-id="${esc(a.id)}" ${a.signed?'disabled':''}`)}</article>`).join('')}</div>`);
+    (!list?`<section class="panel">${empty('查看当前签到活动','点击“刷新活动”，获取当前用户的有效签到列表。','','sign')}</section>`:!list.length?`<section class="panel">${empty('暂时没有进行中的签到','请确认当前用户，或在老师发布签到后刷新。','','sign')}</section>`:`<div class="sign-grid">${list.map(a=>`<article class="sign-card"><div class="card-top"><span class="course-icon">${icon('sign')}</span><span class="badge ${a.signed?'green':'purple'}">${a.signed?'已'+signAction(a):(a.phase==='out'?'签退 · ':'')+esc(kindLabels[a.photo?'photo':a.kind]||'签到活动')}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.course.title)}</p><p>活动编号 ${esc(a.id)}</p>${button(a.signed?'已'+signAction(a):a.kind==='qr'&&!a.photo?'上传二维码 / 填写':'填写并'+signAction(a),'sign-open',a.signed?'secondary':'primary','',`data-id="${esc(a.id)}" ${a.signed?'disabled':''}`)}</article>`).join('')}</div>`);
 }
 
 function openSign(id) {
   const a=state.activities[signActivityKey(state.active)]?.find(x=>x.id===id); if(!a) return;
-  cancelSignQR(); closeSignMap(); state.signMapPoint=null;
+  clearSignVerification('sign');closeSignFace('sign');cancelSignQR(); closeSignMap(); state.signMapPoint=null;
   const kind=a.photo?'photo':a.kind;
-  $('#modal-content').innerHTML=`<form id="sign-form" data-activity="${esc(id)}" data-account="${state.active}" data-source="${currentSignSource()}"><input type="hidden" name="source" value="${currentSignSource()}"><div class="modal-head"><h2>${esc(a.title)}</h2><button type="button" class="icon-button" data-action="modal-close" aria-label="关闭">×</button></div><div class="modal-body"><p class="muted">${esc(a.course.title)} · ${esc(current().name)}</p><div class="field"><label for="sign-kind">签到方式</label><select id="sign-kind" name="kind">${Object.entries(kindLabels).map(([k,l])=>`<option value="${k}" ${kind===k?'selected':''}>${l}</option>`).join('')}</select></div><div class="gap"></div><div id="sign-fields">${signFields(kind)}</div><p class="inline-error" id="sign-error"></p></div><div class="modal-actions"><button type="button" class="button secondary" data-action="modal-close">取消</button><button type="submit" class="button primary">确认提交签到</button></div></form>`;
-  $('#modal').showModal();
+  $('#modal-content').innerHTML=`<form id="sign-form" data-activity="${esc(id)}" data-account="${state.active}" data-source="${currentSignSource()}"><input type="hidden" name="source" value="${currentSignSource()}"><div class="modal-head"><h2>${esc(a.title)}</h2><button type="button" class="icon-button" data-action="modal-close" aria-label="关闭">×</button></div><div class="modal-body"><p class="muted">${esc(a.course.title)} · ${esc(current().name)}</p><div class="field"><label for="sign-kind">签到方式</label><select id="sign-kind" name="kind">${Object.entries(kindLabels).map(([k,l])=>`<option value="${k}" ${kind===k?'selected':''}>${l}</option>`).join('')}</select></div><div id="sign-requirements" class="sign-requirements">正在读取活动要求…</div><div class="gap"></div><div id="sign-fields">${signFields(kind)}</div><p class="inline-error" id="sign-error"></p></div><div class="modal-actions"><button type="button" class="button secondary" data-action="modal-close">取消</button><button type="submit" class="button primary">确认提交${signAction(a)}</button></div></form>`;
+  if(!$('#modal').open)$('#modal').showModal();
+  void loadSignRequirements($('#sign-form'));
 }
 
 function signFields(kind) { return (kind==='location'?locationPresetsHTML():'')+baseSignFields(kind); }
@@ -424,7 +441,7 @@ async function refreshLive() {
 document.addEventListener('click', async event=>{
   const target=event.target.closest('[data-action]'); if(!target) return;
   const action=target.dataset.action, id=target.dataset.id;
-  if(action.startsWith('camera-')||action.startsWith('verification-'))return;
+  if(action.startsWith('camera-')||action.startsWith('verification-')||action.startsWith('face-')||['sign-face','sign-confirm','sign-related'].includes(action))return;
   if(action.startsWith('go-')) return navigate(action.slice(3));
   if(action==='add-account') return showAccountLogin();
   if(action==='account-relogin') return showAccountLogin(id);
@@ -468,7 +485,7 @@ document.addEventListener('change',event=>{
   if(event.target.id==='study-mode') $('#timing-notice').textContent=timingNotice(event.target.value==='duration');
   if(event.target.dataset.course) { const set=state.selection[state.active]; if(event.target.checked) set.add(event.target.dataset.course); else set.delete(event.target.dataset.course); $('#selection-count').textContent=set.size; }
   if(event.target.id==='inherit-api') $('#inherit-notice').classList.toggle('hidden',!event.target.checked);
-  if(event.target.id==='sign-kind') { cancelSignQR(); closeSignMap(); state.signMapPoint=null; state.signMapAddress=''; $('#sign-fields').innerHTML=signFields(event.target.value); }
+  if(event.target.id==='sign-kind') { cancelSignQR(); closeSignMap(); state.signMapPoint=null; state.signMapAddress=''; $('#sign-extra-location')?.remove();$('#sign-fields').innerHTML=signFields(event.target.value);applyRequiredSignLocation($('#sign-form')); }
   if(event.target.id==='sign-coordinate-system') { if(state.signMapPoint) fillSignMap(state.signMapPoint); else signMapStatus('坐标系已切换，手填数值保持不变；请确认手填坐标属于所选坐标系。'); }
   if(event.target.id==='sign-qr-file') loadSignQR(event.target.files[0]);
   if(event.target.id==='school-presets-file') importLocationPresets(event.target.files[0]);
@@ -500,7 +517,7 @@ document.addEventListener('submit',async event=>{
     }
     if(form.id==='global-api-form') { const data=await api('/settings','PUT',{api:readApi(form)}); state.settings=data; toast('全局 API 配置已保存'); render(); }
     if(form.id==='study-config-form') { const study=Object.fromEntries($$('[name^="study."]',form).map(el=>[el.name.slice(6),el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value])); const data=await api(`/accounts/${accountId}/config`,'PUT',{study,inherit_api:$('#inherit-api').checked,api:readApi(form)}); const a=state.accounts.find(a=>a.id===accountId); if(a) a.config=data.config; toast('用户刷课配置已保存'); render(); }
-    if(form.id==='sign-form') { if(signVerifications.has('sign')){$('#sign-error').textContent='请先完成当前滑块验证，或取消验证后重新提交。';return;}const payload=Object.fromEntries(new FormData(form)); payload.activity_id=form.dataset.activity;if(form.dataset.verification)payload.verification_id=form.dataset.verification;try{ const data=await api(`/accounts/${form.dataset.account}/sign`,'POST',payload); const activity=state.activities[signActivityKey(form.dataset.account,form.dataset.source)]?.find(a=>a.id===payload.activity_id); if(activity) activity.signed=true;clearSignVerification('sign',false);$('#modal').close(); toast(data.message); render(); }catch(error){ $('#sign-error').textContent=error.message;if(error.code==='verification_required'&&error.verification){delete form.dataset.verification;showSignVerification('sign',form.dataset.account,error.verification);return;}throw error; } }
+    if(form.id==='sign-form') { if(signVerifications.has('sign')){$('#sign-error').textContent='请先完成当前滑块验证，或取消验证后重新提交。';return;}const payload=Object.fromEntries(new FormData(form)); payload.activity_id=form.dataset.activity;if(form.dataset.verification)payload.verification_id=form.dataset.verification;if(form.dataset.face)payload.face_id=form.dataset.face;try{ const data=await api(`/accounts/${form.dataset.account}/sign`,'POST',payload); const activity=state.activities[signActivityKey(form.dataset.account,form.dataset.source)]?.find(a=>a.id===payload.activity_id); if(activity){activity.signed=true;if(data.phase)activity.phase=data.phase;}clearSignVerification('sign',false);$('#modal').close(); toast(data.message); render(); }catch(error){ $('#sign-error').textContent=error.message;if(error.status===400){delete form.dataset.face;delete form.dataset.verification;}if(error.code==='verification_required'&&error.verification){delete form.dataset.verification;showSignVerification('sign',form.dataset.account,error.verification);return;}if(['face_required','official_face_required'].includes(error.code)){delete form.dataset.face;showSignFace('sign',form.dataset.account,form.dataset.activity,form.dataset.source);return;}throw error; } }
     if(form.id==='job-input-form') { await api(`/jobs/${form.dataset.id}/input`,'POST',{answer:form.elements.answer.value}); toast('回复已发送'); await refreshLive(); }
   },'正在保存 / 提交…');
 });
@@ -528,7 +545,7 @@ $('#refresh-qr').onclick=()=>busy($('#refresh-qr'),startQR,'正在刷新…');
 $('#open-admin-login').onclick=showLogin;
 $('#admin-dialog').addEventListener('cancel',event=>{ event.preventDefault(); closeAdminLogin(); });
 $('#account-dialog').addEventListener('cancel',event=>{ event.preventDefault(); closeAccountLogin(); });
-$('#modal').addEventListener('close',()=>{cancelSignQR();clearSignVerification('sign');closeSignMap();closePresetMap();state.signMapPoint=null;state.signMapAddress='';});
+$('#modal').addEventListener('close',()=>{cancelSignQR();closeSignFace('sign');clearSignVerification('sign');closeSignMap();closePresetMap();state.signMapPoint=null;state.signMapAddress='';});
 $('#add-account').onclick=()=>showAccountLogin();
 $('#account-switch').onchange=event=>{ state.active=event.target.value; state.logJob=null; state.logAfter=0; syncAccountSwitch(); render(); };
 $('#logout').onclick=()=>busy($('#logout'),async()=>{ closeAccountLogin(); await api('/auth/logout','POST',{}); resetConsole(); const data=await api('/session'); state.csrf=data.csrf; showLogin(); });

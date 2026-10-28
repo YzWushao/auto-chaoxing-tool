@@ -88,6 +88,14 @@ def test_qr_waits_for_image_then_passes_enc_without_expiry_or_activity_filter(ch
     assert chat['calls'][0][0]['id'] == '902'
 
 
+def test_qq_sign_out_command_filters_and_labels_events(chat,monkeypatch):
+    original=FakeClient.activities
+    monkeypatch.setattr(FakeClient,'activities',lambda c,courses:[*original(c,courses),{**original(c,courses)[0],'id':'990','phase':'out'}])
+    say=chat['message'];say('签退');assert '为谁签退' in chat['sent'][-1][1]
+    say('1');assert '签退列表' in chat['sent'][-1][1] and '[签退' in chat['sent'][-1][1]
+    say('1');assert chat['calls'][-1][0]['id']=='990'
+
+
 def test_unresolved_verification_points_qq_to_web_without_leaking_tokens(chat,monkeypatch):
     from server.chaoxing import CaptchaRequired
     from tests.test_sign_verification import challenge

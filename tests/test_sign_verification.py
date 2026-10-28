@@ -26,9 +26,14 @@ def challenge(ambiguous=False):
             'referer': 'https://mobilelearn.chaoxing.com/newsign/preSign?activePrimaryId=901'}
 
 
-def test_gap_prediction_abstains_on_ambiguous_images():
-    assert predict_offset(challenge()) == 66
-    assert predict_offset(challenge(True)) is None
+def test_gap_prediction_uses_original_model_adapter(monkeypatch):
+    seen = []
+    monkeypatch.setattr('server.captcha_model.model.predict', lambda value: seen.append(value) or 66)
+    value = challenge()
+    assert predict_offset(value) == 66
+    assert seen == [value]
+    monkeypatch.setattr('server.captcha_model.model.predict', lambda value: None)
+    assert predict_offset(value) is None
 
 
 @pytest.mark.parametrize('url', ['http://captcha-b.chaoxing.com/a.png', 'https://example.invalid/a.png',

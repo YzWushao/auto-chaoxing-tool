@@ -21,7 +21,7 @@ const context=vm.createContext({SignCameraQueue,URL,URLSearchParams,Uint8Clamped
   $:selector=>element(selector),
   $$:selector=>selector==='[name="camera-user"]:checked'?users.filter(a=>a.checked):selector.includes('camera-user')?users:[],
   esc:value=>String(value),heading:()=>'',button:()=>'',
-  clearSignVerification:()=>{},showSignVerification:()=>{},
+  clearSignVerification:()=>{},showSignVerification:()=>{},closeSignFace:()=>{},
   setTimeout:()=>1,clearTimeout:()=>{},
   Worker:class{constructor(){workers.push(this);}postMessage(){}terminate(){this.terminated=true;}},
   api:(path,method,body)=>{requests.push({path,method,body});return new Promise((resolve,reject)=>pending.push({resolve,reject}));}
@@ -107,5 +107,23 @@ const frame=(worker,text)=>{get(`cameraSession.frameAt=${now}`);worker.onmessage
   frame(fourth,qr('OFFLINE_WITH_LOCATION'));assert.equal(requests.length,11);
   assert.equal(requests[10].body.location.school,'离线学校');assert.equal(requests[10].body.location.name,'教学楼');
   get('closeSignCamera()');pending[10].resolve({message:'成功'});await flush();
+
+  element('#camera-location').value='';await get('startSignCamera()');const faceWorker=workers.at(-1);
+  frame(faceWorker,qr('OFFLINE_FACE_REQUIRED'));
+  pending[11].reject(Object.assign(new Error('需要本人照片'),{status:422,code:'face_required',activity:{id:'902',source:'group'}}));await flush();
+  assert.equal(get('cameraSession.queue.current.failures'),0);assert.equal(get('cameraSession.faceTarget.source'),'group');
+  const originalQueue=get('cameraSession.queue'),stopped=streams.at(-1);
+  get('suspendCameraForFace()');assert.equal(stopped.track.stops,1);assert.equal(get('cameraSession.facePaused'),true);
+  get("cameraSession.faceProof={id:'face-for-a',account:'a'};cameraSession.requirement=null");await get('startSignCamera(true)');
+  assert.equal(get('cameraSession.queue'),originalQueue,'Switching to face capture must keep queue progress');
+  const resumed=workers.at(-1);frame(resumed,qr('OFFLINE_FACE_FRESH'));
+  assert.equal(requests[12].body.face_id,'face-for-a');
+  pending[12].reject(Object.assign(new Error('滑块'),{status:409,code:'verification_required',verification:{id:'slider-for-a'}}));await flush();
+  get("cameraSession.verification=null;cameraSession.proof={id:'slider-for-a',account:'a'}");now+=3000;
+  frame(resumed,qr('OFFLINE_FACE_AND_SLIDER'));
+  assert.equal(requests[13].body.face_id,'face-for-a');assert.equal(requests[13].body.verification_id,'slider-for-a');
+  pending[13].resolve({message:'成功'});await flush();now+=1000;frame(resumed,qr('OFFLINE_NEXT_PERSON'));
+  assert.equal(requests[14].body.face_id,undefined);assert.equal(requests[14].body.verification_id,undefined);
+  pending[14].resolve({message:'成功'});await flush();
   console.log('camera controller contract passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -24,6 +24,8 @@ python -m venv .venv
 - 用户称呼支持手机尾号、姓氏＋星号、完整姓名、星号＋名字、姓氏＋尾号，设置后网页和 QQ 共用，不更改真实平台姓名。可选开启“超星群聊签到”：网页独立分页，QQ 合并活动并标明来源；不接收 QQ 群指令。
 - [摄像头连续扫码签到](docs/camera-sign.md)：签到页面进入后勾选用户，再申请本设备摄像头权限。画面本地持续识别，逐用户串行提交；本轮第 11 次失败移到队尾，成功退出队列。可随时停止；离开页面、切到后台和全部完成时释放摄像头。手机通过局域网 / P2P 访问需 HTTPS，本机 localhost 可用。
 - [v0.6.0 签到流程对齐](docs/sign-parity.md)：补齐活动要求、POST 预签到、analysis / analysis2、滑块自动尝试与手动回退、validate / enc2 后续提交；扫码新增相册入口、按设备能力显示补光 / 变焦及二维码附加预设位置。相册队列选图后会自动提交勾选用户；验证等待不消耗失败次数。人脸与签退等 Android 功能尚未完整迁移。
+- [v0.7.0 签退与本人照片](docs/signout-face.md)：识别独立签退活动，显示关联签到 / 签退与活动要求；支持本人拍摄、确认发送、临时照片上下文和扫码队列恢复。需要官方活体 / 设备校验时可转官方完成，再核对平台结果。地点继续沿用现有点位 / 地图方案。仍不保证所有 Android 专用验证均可在网页完成。
+- 滑块自动识别使用 ChaoxingSignFaker 原项目模型；仓库包含原始 `captcha.ort` 和同权重 FP32 CPU 兼容版本。设置页可查看实际加载状态，失败时保留手动滑块。来源、哈希和重建步骤见 [模型说明](models/chaoxing-captcha/README.md)。识别在本机执行，平台确认通过后才继续，不保证所有图片都能自动验证成功。
 
 - 管理员登录：控制台认证与超星身份分离；管理员密码使用 scrypt 哈希保存，服务端会话令牌的哈希保存于 SQLite，30 天有效，支持退出撤销和改密后全部撤销。
 - 超星登录：管理员进入后通过小窗添加账户；支持手机号和密码、学习通扫码确认。超星密码仅用于当前登录，不保存。
@@ -90,11 +92,13 @@ python -m venv .venv
 
 ## 开源来源
 
-本项目直接复用、借鉴以下两个开源项目，感谢原作者与贡献者：
+本项目直接复用、借鉴以下开源项目，感谢原作者与贡献者：
 
 - [Samueli924/chaoxing](https://github.com/Samueli924/chaoxing)：刷课引擎与资源，GPLv3；固定版本 `45d2106b16764231c2de2038fb042e71b23d878f`。
 - [Yink-Design/chaoxing-sign-cli](https://github.com/Yink-Design/chaoxing-sign-cli)：签到流程和参数参考，MIT，原版权 `Copyright (c) 2021 miaochenxi`；参考版本 `4084545e2f00e5297693776ac5c8fccc809c07ca`。
 
-整合项目按 GPL-3.0 发布，详见 [LICENSE](LICENSE)。原许可证及署名予以保留；[NOTICE.md](NOTICE.md) 是版权与引用声明，[THIRD_PARTY.md](THIRD_PARTY.md) 记录具体来源、用途与修改。网页“设置 → 开源来源与致谢”也提供相同入口。
+- [aquamarine5/ChaoxingSignFaker](https://github.com/aquamarine5/ChaoxingSignFaker)：连续扫码交互、验证协议参考，直接复用滑块模型并适配 Python 推理，AGPL-3.0；固定版本 `0346adf72dde1d3fea5600232c575ad2211641c3`。原始模型与 CPU 兼容转换一并公开。
+
+自 v0.7.0 引入上述模型及推理适配后，整合项目新增代码按 AGPL-3.0 发布，详见 [LICENSE](LICENSE)；内置刷课引擎继续保持 GPL-3.0（[原文](licenses/chaoxing-GPL-3.0.txt)），其他组件保留各自许可。网络部署修改版本时，应向使用者提供运行版本的完整对应源码并更新页面源码链接。原许可证及署名予以保留；[NOTICE.md](NOTICE.md) 是版权与引用声明，[THIRD_PARTY.md](THIRD_PARTY.md) 记录具体来源、用途与修改。网页“设置 → 开源来源与致谢”也提供相同入口。
 
 本地二维码解码组件使用 [cozmo/jsQR](https://github.com/cozmo/jsQR) 1.4.0（Apache-2.0）；未修改的发行文件和完整许可证均随源码提供，不依赖外部 CDN。
