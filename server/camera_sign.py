@@ -27,7 +27,7 @@ class CameraSignService:
         self.discovery = {}
         self.last_attempt = {}
 
-    def submit(self, owner, account_id, raw):
+    def submit(self, owner, account_id, raw, verification_id=None, location=None):
         activity_id, enc = qr_parameters(raw)
         key = (owner, account_id)
         with self.signing.locks[account_id]:
@@ -49,6 +49,16 @@ class CameraSignService:
                 raise ValueError(warnings[0] if warnings else '该用户没有此进行中的签到活动，请确认课程或群聊归属')
             if selected['kind'] != 'qr' or selected.get('photo'):
                 raise ValueError('此活动不是单独的二维码签到，请在普通签到页面处理')
-            result = self.signing.submit(owner, account_id, {'activity_id': activity_id, 'source': selected['source'],
-                                         'kind': 'qr', 'qr': enc, '_detected_kind': 'qr'})
+            parameters = {'activity_id': activity_id, 'source': selected['source'], 'kind': 'qr', 'qr': enc,
+                          '_detected_kind': 'qr', 'verification_id': verification_id}
+            if location:
+                if not isinstance(location, dict) or set(location) != {'school', 'name'} or not all(isinstance(v, str) for v in location.values()):
+                    raise ValueError('预设位置选择无效')
+                point = next((p for s in self.signing.store.location_presets(self.signing.preference_owner)
+                              if s['school'] == location['school'] for p in s['points'] if p['name'] == location['name']), None)
+                if not point:
+                    raise ValueError('预设点位已变更或移除，请重新选择')
+                from .sign_coordinates import location_parameters
+                parameters.update(location_parameters(point))
+            result = self.signing.submit(owner, account_id, parameters)
             return {**result, 'activity_id': activity_id, 'title': selected['title']}

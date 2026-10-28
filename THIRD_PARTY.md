@@ -66,3 +66,8 @@
 - 参考项目：[aquamarine5/ChaoxingSignFaker](https://github.com/aquamarine5/ChaoxingSignFaker)，查阅版本 `0346adf72dde1d3fea5600232c575ad2211641c3`，原项目按 AGPL-3.0 发布。参考范围为摄像头连续识别、多账户处理交互以及 URL / `SIGNIN:` 二维码字段约定，感谢作者与贡献者。
 - 网页实现 `web/camera-sign.js`、队列 `web/camera-queue.js` 和请求适配 `server/camera_sign.py` 独立编写；沿用已有 jsQR 发行文件及其 Apache-2.0 声明，没有复制原项目的 Kotlin、Android 组件、图片资源或签到实现，不随项目捆绑该 APK。
 - 浏览器摄像头采用标准 [MediaDevices.getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)，只请求视频；画面在浏览器 Worker 内处理，不上传第三方。
+
+## 签到校验与验证协议参考（2026-10-28）
+
+- 继续查阅上述 ChaoxingSignFaker 版本中的预签到、analysis / analysis2、活动要求字段、滑块 HTTP 请求 / 响应格式与 enc2 / validate 后续流程。`server/sign_protocol.py`、`server/sign_captcha.py` 和网页验证交互独立实现，没有复制其 Android / Kotlin 代码、ONNX / ORT 模型或图像资源。自动识别使用本项目的 Pillow 掩码与区域规则，不宣称等同原模型效果。
+- 人工验证图片为超星验证服务当次生成的临时内容，不随仓库再分发；测试拼图由本项目生成，不使用第三方图片。补光 / 变焦使用浏览器标准 [getCapabilities](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack/getCapabilities) 与 [applyConstraints](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack/applyConstraints)，不捆绑第三方 SDK。

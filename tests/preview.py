@@ -13,7 +13,7 @@ from unittest.mock import patch
 from waitress import serve
 
 from server.app import create_app
-from server.chaoxing import PlatformError
+from server.chaoxing import PlatformError, CaptchaRequired
 from tests.conftest import FakeClient
 
 
@@ -33,9 +33,14 @@ class PreviewClient(FakeClient):
         return [*super().activities(courses), {"id": "902", "title": "二维码签到（离线测试）", "kind": "qr",
                                               "course": courses[0], "photo": False, "start_time": None},
                 {"id": "903", "title": "位置签到（离线测试）", "kind": "location",
+                 "course": courses[0], "photo": False, "start_time": None},
+                {"id": "904", "title": "滑块验证（离线测试）", "kind": "normal",
                  "course": courses[0], "photo": False, "start_time": None}]
 
     def sign(self, activity, supplied, name):
+        if activity['id']=='904' and not supplied.get('_verification'):
+            from tests.test_sign_verification import challenge
+            raise CaptchaRequired(challenge(), 'offline-enc2')
         if 'EXPIRED_TEST_TOKEN' in str(supplied.get('qr', '')):
             raise PlatformError('签到未成功：二维码已过期（离线模拟）')
         return super().sign(activity, supplied, name)
@@ -60,5 +65,6 @@ if __name__ == "__main__":
             raise RuntimeError("Preview must not launch an unexpected worker")
         return original_popen([*args[:-1], "tests.ui_media_worker"], **kwargs)
 
-    with patch("server.tasks.subprocess.Popen", offline_worker):
+    from tests.test_sign_verification import challenge
+    with patch("server.tasks.subprocess.Popen", offline_worker), patch('server.sign_captcha.check_challenge', lambda *args: 'offline-preview-proof'), patch('server.sign_captcha.create_challenge', lambda *args: challenge()):
         serve(app, host="127.0.0.1", port=8766, threads=4)

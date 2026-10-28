@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 from flask import Flask, Response, g, jsonify, request, send_from_directory, session
 from werkzeug.exceptions import HTTPException, Unauthorized
 
-from .chaoxing import ChaoxingClient, PlatformError, QRLogin, SessionExpired
+from .chaoxing import ChaoxingClient, PlatformError, QRLogin, SessionExpired, CaptchaRequired, SignRequirement
 from .config import API_DEFAULTS, PROVIDERS, ROOT, VERSION, account_defaults, public_api, public_config, validate_api, validate_config
 from .store import Store
 from .location_presets import validate_school, validate_import
@@ -100,7 +100,11 @@ def create_app(config=None, client_factory=ChaoxingClient):
 
     @app.errorhandler(PlatformError)
     def platform_error(exc):
-        return jsonify(error=str(exc)[:250], code="platform_error"), 502
+        payload = {'error': str(exc)[:250], 'code': getattr(exc, 'code', 'platform_error')}
+        if isinstance(exc, CaptchaRequired):
+            payload.update(code='verification_required', verification=exc.public)
+            return jsonify(payload), 409
+        return jsonify(payload), 422 if isinstance(exc, SignRequirement) else 502
 
     @app.errorhandler(HTTPException)
     def http_error(exc):
@@ -165,6 +169,9 @@ def create_app(config=None, client_factory=ChaoxingClient):
             store.update_account(value["owner"], value["id"], status="expired")
             if value["status"] != "expired":
                 store.event(value["owner"], value["id"], "login_expired", f"{value['name']} 登录已失效，请重新登录")
+            raise
+        except CaptchaRequired:
+            store.update_account(value['owner'], value['id'], cookies=client.cookies())
             raise
 
     signing = SignService(store, use_client, account_locks)
@@ -471,12 +478,17 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.post('/api/accounts/<account_id>/camera-sign')
     def camera_submit(account_id):
         value, supplied = account(account_id), body()
-        if set(supplied) != {'qr'}:
+        if 'qr' not in supplied or set(supplied)-{'qr', 'verification_id', 'location'}:
             raise ValueError('摄像头签到只接收已解码的二维码内容')
         try:
-            return jsonify(camera_sign.submit(value['owner'], account_id, supplied['qr']))
+            return jsonify(camera_sign.submit(value['owner'], account_id, supplied['qr'], supplied.get('verification_id'), supplied.get('location')))
         except CameraRateLimit as error:
             return jsonify(error=str(error), code='rate_limited'), 429
+
+    @app.post('/api/accounts/<account_id>/verification/<nonce>')
+    def verification_check(account_id, nonce):
+        value = account(account_id)
+        return jsonify(signing.verify(value['owner'], account_id, nonce, body()))
 
     @app.post("/api/accounts/<account_id>/study")
     def study(account_id):

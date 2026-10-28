@@ -8,7 +8,7 @@ import qrcode
 from server.chaoxing import ChaoxingClient, PlatformError
 from server.config import ROOT
 from tests.conftest import FakeClient
-from tests.test_platform import response
+from tests.test_platform import response, sign_response
 
 
 NODE = shutil.which('node')
@@ -75,13 +75,13 @@ def test_platform_qr_error_is_reported_instead_of_success(monkeypatch):
 
     def request(method, url, **kwargs):
         calls.append(url)
-        return response('二维码已过期' if url.endswith('/stuSignajax') else 'ready')
+        return sign_response(url, '二维码已过期')
 
     monkeypatch.setattr(client, 'request', request)
     with pytest.raises(PlatformError, match='二维码已过期'):
         client.sign({'id': '902', 'kind': 'qr', 'course': {'courseId': '1', 'clazzId': '2'}},
                     {'kind': 'qr', 'qr': 'EXPIRED_TEST_TOKEN_12345'}, '测试')
-    assert len(calls) == 2
+    assert len(calls) == 5
 
 
 def test_rejected_qr_does_not_create_success_record(browser, monkeypatch):

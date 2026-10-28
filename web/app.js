@@ -20,7 +20,7 @@ async function api(path, method='GET', data, options={}) {
   try { payload = await response.json(); } catch { throw new Error('服务器返回了异常响应，请检查服务是否运行'); }
   if (!response.ok) {
     if (response.status === 401 && path !== '/admin/login') { state.authenticated = false; showLogin(); }
-    const error=new Error(payload.error || `请求失败 (${response.status})`);error.status=response.status;error.code=payload.code;throw error;
+    const error=new Error(payload.error || `请求失败 (${response.status})`);error.status=response.status;error.code=payload.code;error.verification=payload.verification;throw error;
   }
   return payload;
 }
@@ -424,7 +424,7 @@ async function refreshLive() {
 document.addEventListener('click', async event=>{
   const target=event.target.closest('[data-action]'); if(!target) return;
   const action=target.dataset.action, id=target.dataset.id;
-  if(action.startsWith('camera-'))return;
+  if(action.startsWith('camera-')||action.startsWith('verification-'))return;
   if(action.startsWith('go-')) return navigate(action.slice(3));
   if(action==='add-account') return showAccountLogin();
   if(action==='account-relogin') return showAccountLogin(id);
@@ -500,7 +500,7 @@ document.addEventListener('submit',async event=>{
     }
     if(form.id==='global-api-form') { const data=await api('/settings','PUT',{api:readApi(form)}); state.settings=data; toast('全局 API 配置已保存'); render(); }
     if(form.id==='study-config-form') { const study=Object.fromEntries($$('[name^="study."]',form).map(el=>[el.name.slice(6),el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value])); const data=await api(`/accounts/${accountId}/config`,'PUT',{study,inherit_api:$('#inherit-api').checked,api:readApi(form)}); const a=state.accounts.find(a=>a.id===accountId); if(a) a.config=data.config; toast('用户刷课配置已保存'); render(); }
-    if(form.id==='sign-form') { const payload=Object.fromEntries(new FormData(form)); payload.activity_id=form.dataset.activity; try{ const data=await api(`/accounts/${form.dataset.account}/sign`,'POST',payload); const activity=state.activities[signActivityKey(form.dataset.account,form.dataset.source)]?.find(a=>a.id===payload.activity_id); if(activity) activity.signed=true; $('#modal').close(); toast(data.message); render(); }catch(error){ $('#sign-error').textContent=error.message; throw error; } }
+    if(form.id==='sign-form') { if(signVerifications.has('sign')){$('#sign-error').textContent='请先完成当前滑块验证，或取消验证后重新提交。';return;}const payload=Object.fromEntries(new FormData(form)); payload.activity_id=form.dataset.activity;if(form.dataset.verification)payload.verification_id=form.dataset.verification;try{ const data=await api(`/accounts/${form.dataset.account}/sign`,'POST',payload); const activity=state.activities[signActivityKey(form.dataset.account,form.dataset.source)]?.find(a=>a.id===payload.activity_id); if(activity) activity.signed=true;clearSignVerification('sign',false);$('#modal').close(); toast(data.message); render(); }catch(error){ $('#sign-error').textContent=error.message;if(error.code==='verification_required'&&error.verification){delete form.dataset.verification;showSignVerification('sign',form.dataset.account,error.verification);return;}throw error; } }
     if(form.id==='job-input-form') { await api(`/jobs/${form.dataset.id}/input`,'POST',{answer:form.elements.answer.value}); toast('回复已发送'); await refreshLive(); }
   },'正在保存 / 提交…');
 });
@@ -528,7 +528,7 @@ $('#refresh-qr').onclick=()=>busy($('#refresh-qr'),startQR,'正在刷新…');
 $('#open-admin-login').onclick=showLogin;
 $('#admin-dialog').addEventListener('cancel',event=>{ event.preventDefault(); closeAdminLogin(); });
 $('#account-dialog').addEventListener('cancel',event=>{ event.preventDefault(); closeAccountLogin(); });
-$('#modal').addEventListener('close',()=>{cancelSignQR();closeSignMap();closePresetMap();state.signMapPoint=null;state.signMapAddress='';});
+$('#modal').addEventListener('close',()=>{cancelSignQR();clearSignVerification('sign');closeSignMap();closePresetMap();state.signMapPoint=null;state.signMapAddress='';});
 $('#add-account').onclick=()=>showAccountLogin();
 $('#account-switch').onchange=event=>{ state.active=event.target.value; state.logJob=null; state.logAfter=0; syncAccountSwitch(); render(); };
 $('#logout').onclick=()=>busy($('#logout'),async()=>{ closeAccountLogin(); await api('/auth/logout','POST',{}); resetConsole(); const data=await api('/session'); state.csrf=data.csrf; showLogin(); });

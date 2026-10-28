@@ -4,14 +4,15 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
 const SignCameraQueue=require('../web/camera-queue.js');
 const elements=new Map(),users=[{value:'a',checked:true},{value:'b',checked:true}];
 function element(key){
-  if(!elements.has(key))elements.set(key,{textContent:'',innerHTML:'',dataset:{},value:'environment',replaceChildren(){},
-    pause(){},play:async()=>{},readyState:2,videoWidth:4,videoHeight:4});
+  if(!elements.has(key))elements.set(key,{textContent:'',innerHTML:'',dataset:{},value:key==='#camera-facing'?'environment':'',replaceChildren(){},
+    classList:{add(){},remove(){},toggle(){}},removeAttribute(){},pause(){},play:async()=>{},readyState:2,videoWidth:4,videoHeight:4});
   return elements.get(key);
 }
 const requests=[],pending=[],workers=[],streams=[];let permissions=0,now=100000;
 function stream(){const track={stops:0,stop(){this.stops++;},addEventListener(){}};const value={track,getTracks:()=>[track],getVideoTracks:()=>[track]};streams.push(value);return value;}
 const events={};
-const context=vm.createContext({SignCameraQueue,URL,URLSearchParams,Uint8ClampedArray,Set,Map,Promise,console,
+const context=vm.createContext({SignCameraQueue,URL,URLSearchParams,Uint8ClampedArray,Set,Map,Promise,console,AbortController,
+  SignQR:{decodeImage:async()=>({raw:'https://mobilelearn.chaoxing.com/?id=902&enc=OFFLINE_ALBUM_TOKEN',preview:'data:image/png;base64,AAAA'})},
   Date:class extends Date{static now(){return now;}},
   state:{page:'sign-camera',accounts:[{id:'a',name:'甲'},{id:'b',name:'乙'}]},
   window:{isSecureContext:true,addEventListener:(name,fn)=>events['window:'+name]=fn},
@@ -20,6 +21,7 @@ const context=vm.createContext({SignCameraQueue,URL,URLSearchParams,Uint8Clamped
   $:selector=>element(selector),
   $$:selector=>selector==='[name="camera-user"]:checked'?users.filter(a=>a.checked):selector.includes('camera-user')?users:[],
   esc:value=>String(value),heading:()=>'',button:()=>'',
+  clearSignVerification:()=>{},showSignVerification:()=>{},
   setTimeout:()=>1,clearTimeout:()=>{},
   Worker:class{constructor(){workers.push(this);}postMessage(){}terminate(){this.terminated=true;}},
   api:(path,method,body)=>{requests.push({path,method,body});return new Promise((resolve,reject)=>pending.push({resolve,reject}));}
@@ -76,5 +78,34 @@ const frame=(worker,text)=>{get(`cameraSession.frameAt=${now}`);worker.onmessage
   context.navigator.mediaDevices.getUserMedia=async()=>stream();await get('startSignCamera()');
   context.document.hidden=true;events.visibilitychange();
   assert.equal(streams.at(-1).track.stops,1);assert.equal(get('cameraSession.running'),false);
+
+  context.document.hidden=false;await get('startSignCamera()');const third=workers.at(-1);
+  frame(third,qr('OFFLINE_VERIFICATION_TOKEN'));
+  pending[4].reject(Object.assign(new Error('等待验证'),{status:409,code:'verification_required',verification:{id:'offline-nonce'}}));await flush();
+  assert.equal(get('cameraSession.queue.current.failures'),0);assert.equal(get('cameraSession.queue.current.attempts'),0);
+  now+=3000;frame(third,qr('OFFLINE_FRESH_AFTER_CHALLENGE'));assert.equal(requests.length,5);
+  get("cameraSession.verification=null;cameraSession.proof={id:'offline-nonce',account:'a'}");
+  frame(third,qr('OFFLINE_AFTER_PROOF'));assert.equal(requests[5].body.verification_id,'offline-nonce');
+  pending[5].resolve({message:'成功'});await flush();get('closeSignCamera()');
+
+  const streamCount=streams.length;
+  await get("startImageSign({type:'image/png'})");get('submitCameraNext(cameraSession.generation)');
+  assert.equal(streams.length,streamCount,'Album scanning must not request a physical camera');
+  assert.equal(get('cameraSession.mode'),'image');assert.equal(requests.length,7);
+  pending[6].resolve({message:'成功'});await flush();now+=10000;
+  get('submitCameraNext(cameraSession.generation)');assert.equal(requests.length,8,'Album mode can use the selected picture for the next user');
+  pending[7].resolve({message:'成功'});await flush();assert.equal(get('cameraSession.running'),false);
+
+  await get('startSignCamera()');const fourth=workers.at(-1);frame(fourth,qr('OFFLINE_ENDED_ACTIVITY'));
+  pending[8].reject(Object.assign(new Error('活动截止'),{status:422,code:'activity_ended'}));await flush();
+  assert.equal(get('cameraSession.queue.current.failures'),1);assert.equal(get('cameraSession.requirement'),null);
+  now+=3000;frame(fourth,qr('OFFLINE_NEEDS_LOCATION'));
+  pending[9].reject(Object.assign(new Error('需要位置'),{status:422,code:'location_required'}));await flush();
+  assert.equal(get('cameraSession.queue.current.failures'),1);assert.equal(get('cameraSession.requirement'),'location_required');
+  now+=3000;frame(fourth,qr('OFFLINE_WAIT_LOCATION'));assert.equal(requests.length,10);
+  get("cameraSession.requirement=null");element('#camera-location').value=JSON.stringify(['离线学校','教学楼']);
+  frame(fourth,qr('OFFLINE_WITH_LOCATION'));assert.equal(requests.length,11);
+  assert.equal(requests[10].body.location.school,'离线学校');assert.equal(requests[10].body.location.name,'教学楼');
+  get('closeSignCamera()');pending[10].resolve({message:'成功'});await flush();
   console.log('camera controller contract passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

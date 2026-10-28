@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from websockets.sync.client import connect
 
-from .chaoxing import PlatformError, SessionExpired
+from .chaoxing import PlatformError, SessionExpired, CaptchaRequired, SignRequirement
 from .config import MASK
 from .sign_coordinates import location_parameters
 from .preferences import account_label
@@ -268,6 +268,12 @@ class SignConversation:
             self.send(qq, state['name'] + '：' + result['message'] + '\n回复“签到”可继续。')
         except ImageReadError as error:
             self.send(qq, str(error))
+        except CaptchaRequired:
+            self.sessions.pop(qq, None)
+            self.send(qq, '自动滑块验证未通过，请在网页签到中心完成滑块验证；完成后可重新发送“签到”。')
+        except SignRequirement as error:
+            self.sessions.pop(qq, None)
+            self.send(qq, str(error)+'。处理后可重新发送“签到”。')
         except SessionExpired:
             self.sessions.pop(qq, None)
             self.send(qq, '所选超星用户登录已失效，请在网页端重新登录后再发送“签到”。')

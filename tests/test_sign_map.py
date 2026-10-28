@@ -8,7 +8,7 @@ import pytest
 
 from server.config import ROOT
 from server.chaoxing import ChaoxingClient
-from tests.test_platform import response
+from tests.test_platform import response, sign_response
 
 
 def javascript(program):
@@ -105,7 +105,7 @@ def test_selected_coordinates_reach_platform_unchanged(monkeypatch):
     client = ChaoxingClient()
     def request(*args, **kwargs):
         calls.append(kwargs['params'])
-        return response('success')
+        return sign_response(args[1])
     monkeypatch.setattr(client, 'request', request)
     client.sign({'id':'1','kind':'location','course':{'courseId':'2','clazzId':'3'}},
                 {'longitude':'116.416627','latitude':'39.922700','address':'测试地点'}, '测试')

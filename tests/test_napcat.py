@@ -88,6 +88,15 @@ def test_qr_waits_for_image_then_passes_enc_without_expiry_or_activity_filter(ch
     assert chat['calls'][0][0]['id'] == '902'
 
 
+def test_unresolved_verification_points_qq_to_web_without_leaking_tokens(chat,monkeypatch):
+    from server.chaoxing import CaptchaRequired
+    from tests.test_sign_verification import challenge
+    monkeypatch.setattr(FakeClient,'sign',lambda *a:(_ for _ in ()).throw(CaptchaRequired(challenge(),'private-enc2')))
+    say=chat['message'];say('签到');say('1');say('1')
+    reply=chat['sent'][-1][1]
+    assert '网页签到中心' in reply and '滑块验证' in reply and 'private' not in reply
+
+
 def test_location_uses_saved_point_selected_by_number(app, browser, chat):
     browser.send('/location-presets', {'config': {'school': '离线学校', 'coordinate_system': 'bd09', 'points': [
         {'name': '教学楼甲', 'longitude': 116.1, 'latitude': 40.1, 'address': '离线地址甲'},

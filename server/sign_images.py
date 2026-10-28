@@ -140,7 +140,7 @@ def decode_picture(data):
     raw = texts[0].strip()
     # Same passthrough semantics as the web decoder: no activity/expiry rejection.
     try:
-        return parse_qs(urlsplit(raw).query).get('enc', [raw])[0]
+        return parse_qs(raw[7:].partition('-')[0] if raw.startswith('SIGNIN:') else urlsplit(raw).query).get('enc', [raw])[0]
     except ValueError:
         return raw
 

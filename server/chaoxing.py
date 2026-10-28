@@ -26,6 +26,18 @@ class SessionExpired(PlatformError):
     pass
 
 
+class SignRequirement(PlatformError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
+class CaptchaRequired(PlatformError):
+    def __init__(self, challenge, enc2=None):
+        super().__init__('自动验证尚未通过，请拖动滑块完成验证后继续')
+        self.challenge, self.enc2, self.public = challenge, enc2, None
+
+
 def encrypt_login(value):
     key = b"u2oh6Vu^HWe4_AES"
     data = value.encode("utf-8")
@@ -196,10 +208,20 @@ class ChaoxingClient:
                   "appType": "15", "clientip": "", "useragent": "", "latitude": "-1", "longitude": "-1"}
         if kind == "qr":
             raw = str(supplied.get("qr", "")).strip()
-            enc = parse_qs(urlsplit(raw).query).get("enc", [raw])[0]
+            fields = parse_qs(raw[7:].partition('-')[0] if raw.startswith('SIGNIN:') else urlsplit(raw).query)
+            enc = fields.get("enc", [raw])[0]
             if not re.fullmatch(r"[A-Za-z0-9_-]{8,256}", enc):
                 raise ValueError("请输入当前签到二维码链接或有效 enc 参数")
             params["enc"] = enc
+            if supplied.get('latitude') is not None:
+                try:
+                    lat, lon = float(supplied['latitude']), float(supplied['longitude'])
+                except (KeyError, ValueError, TypeError):
+                    raise ValueError('二维码附加位置坐标无效') from None
+                address = str(supplied.get('address', '')).strip()
+                if not -90 <= lat <= 90 or not -180 <= lon <= 180 or not address:
+                    raise ValueError('二维码附加位置坐标或说明无效')
+                params.update(latitude=str(lat), longitude=str(lon), address=address[:200], ifTiJiao='1')
         elif kind == "location":
             try:
                 lat, lon = float(supplied["latitude"]), float(supplied["longitude"])
@@ -221,20 +243,8 @@ class ChaoxingClient:
             if not re.fullmatch(r"[0-9]{1,20}", code):
                 raise ValueError("请填写当前活动的手势数字或签到码")
             params["signCode"] = code
-        pre = self.request("GET", self.SIGN_BASE + "/newsign/preSign", params={
-            "courseId": course["courseId"], "classId": course["clazzId"], "activePrimaryId": activity["id"],
-            "general": "1", "sys": "1", "ls": "1", "appType": "15", "uid": uid,
-        })
-        self.check_login_page(pre)
-        response = self.request("GET", self.SIGN_BASE + "/pptSign/stuSignajax", params=params)
-        self.check_login_page(response)
-        result = response.text.strip()
-        if result != "success":
-            if result.lower() in {"please login", "login", "notlogin"} or "请先登录" in result:
-                raise SessionExpired("超星登录已失效，请重新登录")
-            plain = BeautifulSoup(result, "html.parser").get_text(" ", strip=True)[:200]
-            raise PlatformError("签到未成功：" + (plain or "平台未确认成功"))
-        return "签到成功"
+        from .sign_protocol import execute_sign
+        return execute_sign(self, activity, params, supplied)
 
     def group_activities(self):
         from .group_sign import GroupSignClient

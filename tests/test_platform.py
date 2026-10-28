@@ -12,6 +12,14 @@ def response(text="", payload=None, url="https://mobilelearn.chaoxing.com/test")
     return SimpleNamespace(text=text, url=url, json=lambda: payload, headers={"Content-Type": "image/jpeg"}, content=b"test-image")
 
 
+def sign_response(url, result='success'):
+    if url.endswith('/getPPTActiveInfo'):
+        return response(payload={'data': {'ifNeedVCode': 0, 'otherId': 0}})
+    if url.endswith('/analysis'):
+        return response("var code='+'0123456789abcdef';")
+    return response(result if url.endswith('/stuSignajax') else 'ready')
+
+
 def test_login_encryption_matches_aes_cbc():
     value = "13800000000密码"
     key = b"u2oh6Vu^HWe4_AES"
@@ -41,14 +49,14 @@ def test_sign_request_and_positive_ack_only(monkeypatch, kind, supplied, expecte
     calls = []
     def request(*args, **kwargs):
         calls.append((args, kwargs))
-        return response("success")
+        return sign_response(args[1])
     monkeypatch.setattr(client, "request", request)
     activity = {"id": "1", "kind": kind, "course": {"courseId": "2", "clazzId": "3"}}
     assert client.sign(activity, supplied, "测试") == "签到成功"
-    assert len(calls) == 2
+    assert len(calls) == 5
     if expected:
         assert expected in calls[-1][1]["params"]
-    monkeypatch.setattr(client, "request", lambda *a, **k: response("需要验证码"))
+    monkeypatch.setattr(client, "request", lambda *a, **k: sign_response(a[1], "需要验证码"))
     with pytest.raises(PlatformError, match="签到未成功"):
         client.sign(activity, supplied, "测试")
 

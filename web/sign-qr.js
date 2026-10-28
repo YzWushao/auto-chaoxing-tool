@@ -12,9 +12,9 @@
     const raw = String(text || '').trim();
     let enc = '', activityId = '';
     try {
-      const url = new URL(raw);
-      enc = url.searchParams.get('enc') || '';
-      activityId = url.searchParams.get('id') || url.searchParams.get('activeId') || url.searchParams.get('activePrimaryId') || '';
+      const fields = raw.startsWith('SIGNIN:') ? new URLSearchParams(raw.slice(7).split('-')[0]) : new URL(raw).searchParams;
+      enc = fields.get('enc') || '';
+      activityId = fields.get('id') || fields.get('aid') || fields.get('activeId') || fields.get('activePrimaryId') || '';
     } catch { /* Plain enc or an unrecognised payload is still passed through. */ }
     return {raw, enc, activityId, value: enc || raw};
   }
