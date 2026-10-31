@@ -10,3 +10,6 @@ licenses/chaoxing-GPL-3.0.txt -text -whitespace
 # Keep model hashes stable on Windows and Unix checkouts.
 *.ort binary
 *.onnx binary
+# Deployment files are executed/read by Unix shells, including Git archives.
+*.sh text eol=lf
+deploy/** text eol=lf
