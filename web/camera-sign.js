@@ -1,16 +1,49 @@
 /* Browser-owned camera session. Only decoded QR text is sent to our sign API. */
 'use strict';
 const cameraSession={running:false,starting:false,generation:0,stream:null,worker:null,timer:null,decodeTimer:null,
-  decoding:false,frameAt:0,latest:null,queue:null,busy:false,nextAt:0,verification:null,requirement:null,proof:null,faceProof:null,faceTarget:null,facePaused:false,mode:'camera',imageAbort:null,message:'选择用户后，点击按钮申请摄像头权限。',scanMessage:'尚未识别签到二维码'};
+  decoding:false,frameAt:0,latest:null,queue:null,busy:false,scanIntervalMs:100,blocked:[],attention:null,verification:null,requirement:null,proof:null,faceProof:null,faceTarget:null,facePaused:false,mode:'camera',imageAbort:null,message:'选择用户后，点击按钮申请摄像头权限。',scanMessage:'尚未识别签到二维码'};
+
+function newCameraQueue(accounts){
+  const c=cameraSession,p=state.preferences||{},interval=Number(p.camera_scan_interval??0.1);
+  c.queue=new SignCameraQueue.Queue(accounts,p.camera_concurrency??1);
+  c.scanIntervalMs=Number.isFinite(interval)&&interval>=0.05&&interval<=10?Math.round(interval*1000):100;
+}
+
+function cameraAccountFinished(account){
+  const c=cameraSession;
+  if(c.proof?.account===account)c.proof=null;
+  if(c.faceProof?.account===account)c.faceProof=null;
+  if(c.attention===account){c.attention=null;c.requirement=null;c.verification=null;c.faceTarget=null;}
+  c.blocked=c.blocked.filter(value=>value.entry.id!==account);
+}
+
+function activateCameraAttention(){
+  const c=cameraSession,q=c.queue;
+  if(c.attention||!q||!c.blocked.length)return;
+  const {entry,error}=c.blocked.shift();
+  if(!q.order.includes(entry.id))return activateCameraAttention();
+  q.focus(entry.id);c.attention=entry.id;c.message=`${entry.name}：${error.message}`;
+  // Only the selected account may own the visible verification / photo context.
+  if(c.proof?.account!==entry.id)c.proof=null;
+  if(c.faceProof?.account!==entry.id){c.faceProof=null;c.faceTarget=null;}
+  if(error.code==='verification_required'){
+    c.verification={account:entry.id};c.requirement=null;c.proof=null;
+    showSignVerification('camera',entry.id,error.verification);
+  }else{
+    c.verification=null;c.requirement=error.code;
+    c.message+='；处理后点击“处理后继续重试”。';
+    if(error.code!=='location_required')c.faceTarget=error.activity||{id:q.activityId,source:'course'};
+  }
+}
 
 function cameraSignEntry(){
-  return `<section class="notice purple"><b>连续扫码签到</b><p>选择用户，使用本设备摄像头持续识别二维码，按队列逐个提交并显示结果。</p><a class="button secondary small" href="#sign-camera">进入摄像头扫码签到 →</a></section>`;
+  return `<section class="notice purple"><b>连续扫码签到</b><p>选择用户，使用本设备摄像头持续识别二维码，按设置的并发数提交，并分别显示每位用户的结果。</p><a class="button secondary small" href="#sign-camera">进入摄像头扫码签到 →</a></section>`;
 }
 
 function cameraSignPage(){
   if(!cameraSession.queue)cameraSession.message='选择用户后，点击按钮申请摄像头权限。';
   return heading('摄像头扫码签到','选择本次需要签到的用户，然后将摄像头对准签到二维码。','<a class="button secondary" href="#sign">返回签到中心</a>')+
-  `<div id="camera-sign-root"><div class="camera-layout"><section class="panel"><div class="panel-header"><h3>1 · 选择用户</h3><span class="badge purple">按列表顺序提交</span></div><div class="panel-body"><div class="actions">${button('全选','camera-select-all','secondary small')}${button('清空','camera-select-none','secondary small')}</div><div class="camera-choice-list">${state.accounts.map(a=>`<label class="camera-choice"><input type="checkbox" name="camera-user" value="${esc(a.id)}"><span>${esc(a.name)}${a.status==='expired'?'<small>登录已失效，请先重新登录</small>':''}</span></label>`).join('')||'<p class="muted">请先在用户管理中添加超星账户。</p>'}</div><p class="setting-note">失败超过 10 次即本轮第 11 次失败后，移至待处理队列末尾，再处理下一位；成功用户退出队列。失败用户轮到时重新计数，累计失败仍保留。</p><div class="field"><label for="camera-location">二维码附加位置（按需选择实际所在点位）</label><select id="camera-location"><option value="">不提交位置</option>${(state.location_presets||[]).flatMap(s=>s.points.map(p=>`<option value="${esc(JSON.stringify([s.school,p.name]))}">${esc(s.school+' · '+p.name)}</option>`)).join('')}</select></div><div class="camera-control"><select id="camera-facing" aria-label="优先使用的摄像头"><option value="environment">后置摄像头优先</option><option value="user">前置摄像头优先</option></select>${button('启动摄像头并开始','camera-start','primary')}${button('停止并释放摄像头','camera-stop','secondary')}${button('处理后继续重试','camera-resume','secondary')}${button('准备当前用户照片','camera-face','secondary')}${button('核对官方完成结果','camera-confirm','secondary')}${button('从相册识别并开始','camera-image','secondary')}<input id="camera-image-file" type="file" class="hidden" accept="image/png,image/jpeg,image/webp"></div><p id="camera-error" class="inline-error" role="alert"></p><p class="setting-note camera-help">扫码画面只在本设备内识别，不录制、不上传；本人照片仅在单独确认后发送超星。启动即按选择的用户自动提交；滑块验证可在此完成；人脸可准备本人照片；官方活体或设备校验需转官方处理。停止、离开页面、切到后台或全部完成时关闭摄像头；已发出的请求仍会返回结果。</p><div class="notice camera-help">远程实时摄像头需通过 HTTPS 访问，相册扫码可直接使用当前地址。本机可使用 localhost / 127.0.0.1；普通 HTTP 的局域网或 P2P IP 无法申请摄像头权限。</div></div></section><section class="panel"><div class="panel-header"><h3>2 · 持续扫码</h3><span id="camera-live-badge" class="badge">摄像头未开启</span></div><div class="panel-body"><div class="camera-preview"><video id="sign-camera-video" autoplay muted playsinline aria-label="本设备摄像头预览"></video><p>允许摄像头后，将签到二维码置于画面中央。</p><img id="camera-image-preview" class="camera-photo hidden" alt="本地二维码图片预览"></div><div id="camera-hardware" class="camera-hardware hidden"><label id="camera-torch-wrap" class="hidden"><input type="checkbox" id="camera-torch">补光灯</label><label id="camera-zoom-wrap" class="hidden">变焦 <input type="range" id="camera-zoom" min="1" max="1" step="0.1" value="1" aria-label="摄像头变焦"></label></div><p id="camera-scan-status" class="setting-note" role="status"></p><div id="camera-status" class="camera-status" role="status" aria-live="polite"></div><div id="camera-verification"></div><div id="camera-summary" class="camera-summary"></div><ol id="camera-queue" class="camera-queue" aria-label="签到队列"></ol></div></section></div></div>`;
+  `<div id="camera-sign-root"><div class="camera-layout"><section class="panel"><div class="panel-header"><h3>1 · 选择用户</h3><span class="badge purple">最多 ${state.preferences?.camera_concurrency??1} 人并发</span></div><div class="panel-body"><div class="actions">${button('全选','camera-select-all','secondary small')}${button('清空','camera-select-none','secondary small')}</div><div class="camera-choice-list">${state.accounts.map(a=>`<label class="camera-choice"><input type="checkbox" name="camera-user" value="${esc(a.id)}"><span>${esc(a.name)}${a.status==='expired'?'<small>登录已失效，请先重新登录</small>':''}</span></label>`).join('')||'<p class="muted">请先在用户管理中添加超星账户。</p>'}</div><p class="setting-note">失败超过 10 次即本轮第 11 次失败后，移至待处理队列末尾，再处理下一位；并发槽位可同时处理其他用户，成功用户退出队列。失败用户轮到时重新计数，累计失败仍保留。</p><div class="field"><label for="camera-location">二维码附加位置（按需选择实际所在点位）</label><select id="camera-location"><option value="">不提交位置</option>${(state.location_presets||[]).flatMap(s=>s.points.map(p=>`<option value="${esc(JSON.stringify([s.school,p.name]))}">${esc(s.school+' · '+p.name)}</option>`)).join('')}</select></div><div class="camera-control"><select id="camera-facing" aria-label="优先使用的摄像头"><option value="environment">后置摄像头优先</option><option value="user">前置摄像头优先</option></select>${button('启动摄像头并开始','camera-start','primary')}${button('停止并释放摄像头','camera-stop','secondary')}${button('处理后继续重试','camera-resume','secondary')}${button('准备当前用户照片','camera-face','secondary')}${button('核对官方完成结果','camera-confirm','secondary')}${button('从相册识别并开始','camera-image','secondary')}<input id="camera-image-file" type="file" class="hidden" accept="image/png,image/jpeg,image/webp"></div><p id="camera-error" class="inline-error" role="alert"></p><p class="setting-note camera-help">扫码画面只在本设备内识别，不录制、不上传；本人照片仅在单独确认后发送超星。启动即按选择的用户自动提交；滑块验证可在此完成；人脸可准备本人照片；官方活体或设备校验需转官方处理。停止、离开页面、切到后台或全部完成时关闭摄像头；已发出的请求仍会返回结果。</p><div class="notice camera-help">远程实时摄像头需通过 HTTPS 访问，相册扫码可直接使用当前地址。本机可使用 localhost / 127.0.0.1；普通 HTTP 的局域网或 P2P IP 无法申请摄像头权限。</div></div></section><section class="panel"><div class="panel-header"><h3>2 · 持续扫码</h3><span id="camera-live-badge" class="badge">摄像头未开启</span></div><div class="panel-body"><div class="camera-preview"><video id="sign-camera-video" autoplay muted playsinline aria-label="本设备摄像头预览"></video><p>允许摄像头后，将签到二维码置于画面中央。</p><img id="camera-image-preview" class="camera-photo hidden" alt="本地二维码图片预览"></div><div id="camera-hardware" class="camera-hardware hidden"><label id="camera-torch-wrap" class="hidden"><input type="checkbox" id="camera-torch">补光灯</label><label id="camera-zoom-wrap" class="hidden">变焦 <input type="range" id="camera-zoom" min="1" max="1" step="0.1" value="1" aria-label="摄像头变焦"></label></div><p id="camera-scan-status" class="setting-note" role="status"></p><div id="camera-status" class="camera-status" role="status" aria-live="polite"></div><div id="camera-verification"></div><div id="camera-summary" class="camera-summary"></div><ol id="camera-queue" class="camera-queue" aria-label="签到队列"></ol></div></section></div></div>`;
 }
 
 function renderCameraStatus(){
@@ -29,15 +62,15 @@ function renderCameraStatus(){
   $('#camera-status').textContent=c.message;
   $('#camera-scan-status').textContent=(q?.activityId?`本次活动 ${q.activityId} · `:'')+c.scanMessage;
   if(!q){$('#camera-summary').textContent='尚未建立队列';$('#camera-queue').replaceChildren();return;}
-  $('#camera-summary').innerHTML=`<span>已完成 <b>${q.entries.filter(a=>a.status==='succeeded').length} / ${q.entries.length}</b></span><span>待处理 <b>${q.order.length}</b></span><span>当前用户本轮失败 <b>${q.current?.passFailures||0} / 11</b></span>`;
-  $('#camera-queue').innerHTML=q.rows().map((a,index)=>`<li class="${q.current?.id===a.id?'current':''}"><div class="camera-row-head"><strong>${index+1}. ${esc(state.accounts.find(x=>x.id===a.id)?.name||a.name)}</strong><span class="badge ${a.status==='succeeded'?'green':a.status==='submitting'?'purple':''}">${a.status==='succeeded'?'已签到':a.status==='submitting'?'正在提交':q.current?.id===a.id?'下一位 / 重试中':'等待'}</span></div><p>提交 ${a.attempts} 次 · 累计失败 ${a.failures} 次${a.rotations?` · 已移至队尾 ${a.rotations} 次`:''}</p><p class="${a.failures&&a.status!=='succeeded'?'camera-failure':''}">${esc(a.message)}</p></li>`).join('');
+  $('#camera-summary').innerHTML=`<span>已完成 <b>${q.entries.filter(a=>a.status==='succeeded').length} / ${q.entries.length}</b></span><span>待处理 <b>${q.order.length}</b></span><span>正在提交 <b>${q.inFlight.size} / ${q.concurrency}</b></span><span>当前用户本轮失败 <b>${q.current?.passFailures||0} / 11</b></span>`;
+  $('#camera-queue').innerHTML=q.rows().map((a,index)=>`<li class="${a.status==='submitting'||q.current?.id===a.id?'current':''}"><div class="camera-row-head"><strong>${index+1}. ${esc(state.accounts.find(x=>x.id===a.id)?.name||a.name)}</strong><span class="badge ${a.status==='succeeded'?'green':a.status==='submitting'?'purple':''}">${a.status==='succeeded'?'已签到':a.status==='submitting'?'正在提交':a.status==='waiting'?'等待处理验证':q.current?.id===a.id?'下一位 / 重试中':'等待'}</span></div><p>提交 ${a.attempts} 次 · 累计失败 ${a.failures} 次 · 本轮失败 ${a.passFailures} / 11${a.rotations?` · 已移至队尾 ${a.rotations} 次`:''}</p><p class="${a.failures&&a.status!=='succeeded'?'camera-failure':''}">${esc(a.message)}</p></li>`).join('');
 }
 
 function closeSignCamera(message){
   const c=cameraSession;
   c.running=false;c.starting=false;c.generation++;clearTimeout(c.timer);clearTimeout(c.decodeTimer);
   c.worker?.terminate();c.worker=null;c.decoding=false;c.latest=null;
-  c.imageAbort?.abort();c.imageAbort=null;c.verification=null;c.requirement=null;c.proof=null;c.faceProof=null;c.faceTarget=null;c.facePaused=false;closeSignFace('camera');clearSignVerification('camera');
+  c.imageAbort?.abort();c.imageAbort=null;c.blocked=[];c.attention=null;c.verification=null;c.requirement=null;c.proof=null;c.faceProof=null;c.faceTarget=null;c.facePaused=false;closeSignFace('camera');clearSignVerification('camera');
   const photo=$('#camera-image-preview');if(photo){photo.removeAttribute('src');photo.classList.add('hidden');}
   c.stream?.getTracks().forEach(track=>track.stop());c.stream=null;
   const video=$('#sign-camera-video');if(video){video.pause();video.srcObject=null;delete video.dataset.live;}
@@ -59,7 +92,7 @@ async function startSignCamera(resume=false){
   if(!resume)closeSignCamera();else{c.generation++;c.facePaused=false;c.latest=null;}
   const accounts=state.accounts.filter(a=>selected.has(a.id));
   if(!accounts.length){$('#camera-error').textContent='所选用户已被移除，请刷新页面后重新选择。';return;}
-  if(!resume)c.queue=new SignCameraQueue.Queue(accounts);
+  if(!resume)newCameraQueue(accounts);
   c.mode='camera';
   c.starting=true;c.message='等待浏览器摄像头权限，请选择允许。';c.scanMessage='尚未识别签到二维码';
   const generation=c.generation;renderCameraStatus();
@@ -69,7 +102,7 @@ async function startSignCamera(resume=false){
     if(generation!==c.generation||state.page!=='sign-camera'){stream.getTracks().forEach(track=>track.stop());return;}
     c.stream=stream;const video=$('#sign-camera-video');video.srcObject=stream;await video.play();
     if(generation!==c.generation)return;
-    video.dataset.live='true';c.starting=false;c.running=true;c.nextAt=0;c.message='摄像头已开启，等待签到二维码。';
+    video.dataset.live='true';c.starting=false;c.running=true;c.message='摄像头已开启，等待签到二维码。';
     configureCameraHardware(stream.getVideoTracks()[0]);
     stream.getVideoTracks().forEach(track=>track.addEventListener('ended',()=>{if(c.running&&generation===c.generation)closeSignCamera('摄像头已断开，请重新启动。');}));
     const canvas=document.createElement('canvas'),context=canvas.getContext('2d',{willReadFrequently:true});
@@ -88,7 +121,7 @@ async function startSignCamera(resume=false){
     };
     const scan=()=>{
       if(!c.running||generation!==c.generation)return;
-      c.timer=setTimeout(scan,350);
+      c.timer=setTimeout(scan,c.scanIntervalMs);
       if(c.decoding||video.readyState<2||!video.videoWidth)return;
       try{
         const scale=Math.min(1,1280/Math.max(video.videoWidth,video.videoHeight));
@@ -108,32 +141,62 @@ async function startSignCamera(resume=false){
 
 async function submitCameraNext(generation){
   const c=cameraSession,q=c.queue,qr=c.latest;
-  if(!c.running||c.starting||generation!==c.generation||c.busy||c.verification||c.requirement||q.done||!qr||(c.mode!=='image'&&Date.now()-qr.at>1500)||Date.now()<c.nextAt)return;
-  const entry=q.begin();if(!entry)return;
-  c.busy=true;c.message=`正在为 ${entry.name} 提交签到。`;renderCameraStatus();
+  if(!c.running||c.starting||generation!==c.generation||c.busy||!q)return;
+  activateCameraAttention();
+  if(c.verification||c.requirement||q.done||!qr||(c.mode!=='image'&&Date.now()-qr.at>1500))return;
+  const entries=[],now=Date.now();
+  if(c.attention){
+    const selected=q.entries.find(value=>value.id===c.attention);
+    if(selected?.status==='waiting')selected.status='pending';
+    const entry=q.begin(c.attention,now);if(entry)entries.push(entry);
+  }else{
+    let entry;while((entry=q.begin(null,now)))entries.push(entry);
+  }
+  if(!entries.length)return;
+  c.busy=true;c.message=`正在为 ${entries.map(entry=>entry.name).join('、')} 提交签到（${entries.length} / ${q.concurrency} 并发）。`;renderCameraStatus();
+  // A batch drains before another is started or a verification UI is shown.
+  // Each response is attributed by account ID, never by completion order.
+  try{
+    await Promise.allSettled(entries.map(entry=>submitCameraAccount(entry,qr,generation,q)));
+  }finally{
+    c.busy=false;
+    if(c.running&&generation===c.generation){
+      activateCameraAttention();
+      if(q.done)closeSignCamera('所选用户已全部签到，摄像头已关闭。');
+    }
+    renderCameraStatus();
+  }
+}
+
+async function submitCameraAccount(entry,qr,generation,q){
+  const c=cameraSession;
   try{
     const payload={qr:qr.raw};if(c.proof?.account===entry.id)payload.verification_id=c.proof.id;
     if(c.faceProof?.account===entry.id)payload.face_id=c.faceProof.id;
     const location=$('#camera-location')?.value;if(location){const [school,name]=JSON.parse(location);payload.location={school,name};}
     const result=await api(`/accounts/${encodeURIComponent(entry.id)}/camera-sign`,'POST',payload);
-    q.finish(true,result.message);c.proof=null;c.faceProof=null;c.faceTarget=null;c.message=`${entry.name}：${result.message}`;c.nextAt=Date.now()+500;
+    q.finish(true,result.message,entry.id);cameraAccountFinished(entry.id);c.message=`${entry.name}：${result.message}`;
   }catch(error){
-    if(error.status===400){c.faceProof=null;c.proof=null;}
-    if(error.code==='verification_required'&&error.verification){q.defer('等待滑块验证');c.verification={account:entry.id};c.proof=null;c.message=error.message;showSignVerification('camera',entry.id,error.verification);}
-    else if(error.status===422&&['face_required','official_face_required','location_required'].includes(error.code)){q.defer(error.message);c.requirement=error.code;c.message=error.message+'；处理后点击“处理后继续重试”。';if(error.code!=='location_required'){c.faceProof=null;c.faceTarget=error.activity||{id:q.activityId,source:'course'};}}
-    else if(error.status===429){q.defer(error.message);c.message=error.message;}
+    if(error.status===400){if(c.faceProof?.account===entry.id)c.faceProof=null;if(c.proof?.account===entry.id)c.proof=null;}
+    const needsAttention=(error.code==='verification_required'&&error.verification)||(error.status===422&&['face_required','official_face_required','location_required'].includes(error.code));
+    if(needsAttention){
+      q.defer(error.message,entry.id);
+      if(c.running&&generation===c.generation){
+        entry.status='waiting';
+        if(c.attention===entry.id){c.attention=null;c.blocked.unshift({entry,error});}
+        else c.blocked.push({entry,error});
+      }
+    }
+    else if(error.status===429){q.defer(error.message,entry.id);c.message=`${entry.name}：${error.message}`;}
     else{
-      const outcome=q.finish(false,error.message);
-      c.message=outcome.moved?`${entry.name} 本轮已失败 11 次，已放到队尾；继续下一位。`:`${entry.name}：${error.message}`;
+      const outcome=q.finish(false,error.message,entry.id);cameraAccountFinished(entry.id);
+      c.message=outcome.moved?`${entry.name} 本轮已失败 11 次，已放到队尾；继续其他用户。`:`${entry.name}：${error.message}`;
       // A lost HTTP response can mean the platform already accepted the request.
       if(!error.status||error.status===401||error.status===403)closeSignCamera('连接或控制台会话异常，已停止；请核对结果后重新开始。');
     }
-    c.nextAt=Date.now()+2500;
-  }finally{
-    c.busy=false;
-    if(c.running&&q.done)closeSignCamera('所选用户已全部签到，摄像头已关闭。');
-    renderCameraStatus();
+    entry.retryAt=Date.now()+2500;
   }
+  renderCameraStatus();
 }
 
 function suspendCameraForFace(){
@@ -150,7 +213,7 @@ function resumeCameraAfterFace(){
   closeSignFace('camera');c.requirement=null;
   if(c.mode==='image'){
     c.facePaused=false;c.running=true;c.generation++;const generation=c.generation;
-    const tick=()=>{if(!c.running||generation!==c.generation)return;c.timer=setTimeout(tick,350);void submitCameraNext(generation);};tick();renderCameraStatus();
+    const tick=()=>{if(!c.running||generation!==c.generation)return;c.timer=setTimeout(tick,c.scanIntervalMs);void submitCameraNext(generation);};tick();renderCameraStatus();
   }else void startSignCamera(true);
 }
 
@@ -169,7 +232,7 @@ async function startImageSign(file){
   if(!c.running){
     const ids=new Set($$('[name="camera-user"]:checked').map(el=>el.value)),accounts=state.accounts.filter(a=>ids.has(a.id));
     if(!accounts.length){$('#camera-error').textContent='请先选择需要签到的用户。';return;}
-    closeSignCamera();c.queue=new SignCameraQueue.Queue(accounts);c.mode='image';c.nextAt=0;
+    closeSignCamera();newCameraQueue(accounts);c.mode='image';
   }
   const generation=c.generation,controller=new AbortController();c.imageAbort?.abort();c.imageAbort=controller;c.starting=true;renderCameraStatus();
   try{
@@ -179,7 +242,7 @@ async function startImageSign(file){
     if(!c.queue.bind(value.activityId))throw new Error('此图片属于其他活动，请停止后重新开始');
     const image=$('#camera-image-preview');image.src=decoded.preview;image.classList.remove('hidden');
     c.latest={...value,at:Date.now()};c.running=true;c.starting=false;c.message='相册二维码已识别，开始按队列提交。';c.scanMessage='相册模式，可随时更新二维码图片';
-    const tick=()=>{if(!c.running||generation!==c.generation)return;c.timer=setTimeout(tick,350);void submitCameraNext(generation);};
+    const tick=()=>{if(!c.running||generation!==c.generation)return;c.timer=setTimeout(tick,c.scanIntervalMs);void submitCameraNext(generation);};
     clearTimeout(c.timer);tick();
   }catch(error){if(generation===c.generation&&error.name!=='AbortError')$('#camera-error').textContent=error.message;}
   finally{if(generation===c.generation){c.starting=false;renderCameraStatus();}}

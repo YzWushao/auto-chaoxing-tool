@@ -255,7 +255,7 @@ function configPage() {
 }
 
 function settingsPage() {
-  return heading('设置','管理管理员凭据、预设点位、地图服务、QQ 签到与全局 API 配置。')+preferencesPanel()+presetsSettingsEntry()+napcatPanel()+mapSettingsPanel()+adminPanel()+
+  return heading('设置','管理扫码参数、管理员凭据、预设点位、地图服务、QQ 签到与全局 API 配置。')+preferencesPanel()+cameraPreferencesPanel()+presetsSettingsEntry()+napcatPanel()+mapSettingsPanel()+adminPanel()+
     `<div class="settings-grid"><form id="global-api-form" class="panel"><div class="panel-header"><div><h3>全局 API 配置</h3><p class="subheading">所有开启“使用全局 API 配置”的用户将自动继承</p></div><span class="badge purple">默认配置</span></div><div class="panel-body">${apiFields(state.settings.api)}</div><div class="panel-actions"><small>密钥加密保存，仅返回脱敏信息</small><button type="submit" class="button primary">保存全局配置</button></div></form><aside><section class="panel"><div class="panel-header"><h3>扩展计划</h3><span class="badge">TODO</span></div><div class="panel-body">${state.integrations.map(i=>`<div class="integration"><span class="integration-icon">${icon('link')}</span><div><h3>${esc(i.name)} <span class="badge">待接入</span></h3><p>${esc(i.description)}</p></div></div>`).join('')}</div></section><section class="panel"><div class="panel-header"><h3>服务信息</h3></div><div class="panel-body"><div class="setting-row"><span>当前版本</span><b>${esc(state.system.version)}</b></div><div class="setting-row"><span>会话隔离</span><b>按用户隔离</b></div><div class="setting-row"><span>凭据存储</span><b>本地加密</b></div><div class="setting-row"><span>OCR 扩展</span><b>${state.system.ocr?'已安装':'未安装（可选）'}</b></div><p class="setting-note">NapCat 仅接入授权 QQ 的私聊签到会话；第三方推送、辅助登录和主动状态通知仍未接入。登录失效、任务结果等事件已经在“最近动态”中记录。</p></div></section></aside></div>${creditsPanel()}`;
 }
 

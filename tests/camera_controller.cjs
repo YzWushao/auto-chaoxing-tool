@@ -28,7 +28,7 @@ const context=vm.createContext({SignCameraQueue,URL,URLSearchParams,Uint8Clamped
 });
 vm.runInContext(fs.readFileSync('web/camera-sign.js','utf8'),context);
 const get=expression=>vm.runInContext(expression,context);
-const flush=async()=>{await Promise.resolve();await Promise.resolve();await Promise.resolve();};
+const flush=()=>new Promise(resolve=>setImmediate(resolve));
 const qr=enc=>'https://mobilelearn.chaoxing.com/widget/sign/e?id=902&enc='+enc;
 const frame=(worker,text)=>{get(`cameraSession.frameAt=${now}`);worker.onmessage({data:{text}});};
 
@@ -44,7 +44,7 @@ const frame=(worker,text)=>{get(`cameraSession.frameAt=${now}`);worker.onmessage
   frame(worker,qr('OFFLINE_FIRST_TOKEN'));
   assert.equal(requests.length,1);assert.match(requests[0].path,/\/a\/camera-sign$/);
   frame(worker,qr('OFFLINE_CHANGED_TOKEN'));
-  assert.equal(requests.length,1,'Users must never be submitted concurrently');
+  assert.equal(requests.length,1,'The default concurrency remains one');
   pending[0].resolve({message:'成功'});await flush();now+=1000;
   frame(worker,qr('OFFLINE_LATEST_TOKEN'));
   assert.equal(requests.length,2);assert.match(requests[1].path,/\/b\/camera-sign$/);
@@ -116,7 +116,7 @@ const frame=(worker,text)=>{get(`cameraSession.frameAt=${now}`);worker.onmessage
   get('suspendCameraForFace()');assert.equal(stopped.track.stops,1);assert.equal(get('cameraSession.facePaused'),true);
   get("cameraSession.faceProof={id:'face-for-a',account:'a'};cameraSession.requirement=null");await get('startSignCamera(true)');
   assert.equal(get('cameraSession.queue'),originalQueue,'Switching to face capture must keep queue progress');
-  const resumed=workers.at(-1);frame(resumed,qr('OFFLINE_FACE_FRESH'));
+  const resumed=workers.at(-1);now+=3000;frame(resumed,qr('OFFLINE_FACE_FRESH'));
   assert.equal(requests[12].body.face_id,'face-for-a');
   pending[12].reject(Object.assign(new Error('滑块'),{status:409,code:'verification_required',verification:{id:'slider-for-a'}}));await flush();
   get("cameraSession.verification=null;cameraSession.proof={id:'slider-for-a',account:'a'}");now+=3000;

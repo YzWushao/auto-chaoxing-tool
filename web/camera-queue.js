@@ -16,30 +16,41 @@
     }catch{return null;}
   }
   class Queue{
-    constructor(accounts){
-      this.entries=[...new Map(accounts.map(a=>[a.id,{id:a.id,name:a.name,status:'pending',attempts:0,failures:0,passFailures:0,rotations:0,message:'等待扫码'}])).values()];
-      this.order=this.entries.map(a=>a.id);this.activityId='';this.inFlight=null;
+    constructor(accounts,concurrency=1){
+      this.entries=[...new Map(accounts.map(a=>[a.id,{id:a.id,name:a.name,status:'pending',attempts:0,failures:0,passFailures:0,rotations:0,retryAt:0,message:'等待扫码'}])).values()];
+      this.order=this.entries.map(a=>a.id);this.activityId='';this.inFlight=new Map();
+      this.concurrency=Number.isInteger(concurrency)?Math.max(1,Math.min(5,concurrency)):1;
     }
     get current(){return this.entries.find(a=>a.id===this.order[0]);}
     get done(){return this.order.length===0;}
     bind(id){if(!this.activityId)this.activityId=id;return this.activityId===id;}
-    begin(){
-      if(this.inFlight||this.done)return null;
-      const entry=this.current;entry.attempts++;entry.status='submitting';this.inFlight=entry;return entry;
+    focus(id){
+      if(this.order.includes(id))this.order=[id,...this.order.filter(value=>value!==id)];
     }
-    finish(success,message){
-      const entry=this.inFlight;if(!entry)return null;
-      this.inFlight=null;entry.message=message;
-      if(success){entry.status='succeeded';this.order.shift();}
+    begin(id=null,now=Infinity){
+      if(this.inFlight.size>=this.concurrency||this.done)return null;
+      const entry=this.order.slice(0,this.concurrency).map(value=>this.entries.find(a=>a.id===value)).find(a=>(id===null||a.id===id)&&a.status==='pending'&&a.retryAt<=now);
+      if(!entry)return null;
+      entry.attempts++;entry.status='submitting';this.inFlight.set(entry.id,entry);return entry;
+    }
+    finish(success,message,id=null){
+      const entry=id===null?this.inFlight.values().next().value:this.inFlight.get(id);if(!entry)return null;
+      this.inFlight.delete(entry.id);entry.message=message;
+      if(success){entry.status='succeeded';this.order=this.order.filter(value=>value!==entry.id);}
       else{
         entry.status='pending';entry.failures++;entry.passFailures++;
-        if(entry.passFailures>10){this.order.push(this.order.shift());entry.passFailures=0;entry.rotations++;return {entry,moved:true};}
+        if(entry.passFailures>10){this.order=this.order.filter(value=>value!==entry.id);this.order.push(entry.id);entry.passFailures=0;entry.rotations++;return {entry,moved:true};}
       }
       return {entry,moved:false};
     }
-    defer(message){
-      const entry=this.inFlight;if(!entry)return;
-      entry.attempts--;entry.status='pending';entry.message=message;this.inFlight=null;
+    defer(message,id=null){
+      const entry=id===null?this.inFlight.values().next().value:this.inFlight.get(id);if(!entry)return;
+      entry.attempts--;entry.status='pending';entry.message=message;this.inFlight.delete(entry.id);
+    }
+    confirm(id,message){
+      const entry=this.entries.find(a=>a.id===id);
+      if(!entry||this.inFlight.has(id)||!this.order.includes(id))return false;
+      entry.status='succeeded';entry.message=message;this.order=this.order.filter(value=>value!==id);return true;
     }
     rows(){return [...this.order.map(id=>this.entries.find(a=>a.id===id)),...this.entries.filter(a=>a.status==='succeeded')];}
   }

@@ -93,7 +93,8 @@ async function confirmSignResult(account,activity,source,context){
   const queue=context==='camera'?cameraSession.queue:null;
   const result=await api(`/accounts/${encodeURIComponent(account)}/activities/${encodeURIComponent(activity)}/confirm`,'POST',{source});
   if(context==='camera'&&queue===cameraSession.queue&&queue?.activityId===activity){
-    if(result.signed&&queue.current?.id===account){queue.begin();queue.finish(true,result.message);cameraSession.requirement=null;cameraSession.faceProof=null;cameraSession.faceTarget=null;}
+    if(result.signed&&queue.current?.id===account&&queue.confirm(account,result.message))cameraAccountFinished(account);
+    if(!cameraSession.busy)activateCameraAttention();
     cameraSession.message=result.message;if(cameraSession.queue?.done)closeSignCamera('所选用户已全部完成。');renderCameraStatus();
   }else if(context!=='camera'&&result.signed){
     const item=state.activities[signActivityKey(account,source)]?.find(a=>a.id===activity);if(item)item.signed=true;

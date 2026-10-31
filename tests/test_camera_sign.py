@@ -102,7 +102,7 @@ def run_node(program):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js is required for offline camera queue tests')
-    return subprocess.run([node, '-e', program], cwd=ROOT, text=True, capture_output=True, timeout=15, check=True)
+    return subprocess.run([node, '-e', program], cwd=ROOT, text=True, encoding='utf-8', capture_output=True, timeout=15, check=True)
 
 
 def test_queue_handoff_occurs_on_eleventh_failure_without_losing_users():
@@ -124,3 +124,28 @@ assert.equal(parameters('https://example.invalid/?aid=902&enc=OFFLINE_TOKEN_123'
 
 def test_camera_controller_uses_fresh_qr_and_releases_tracks():
     run_node("require('./tests/camera_controller.cjs')")
+
+
+def test_camera_parallel_batches_keep_account_results_and_verifications_separate():
+    run_node("require('./tests/camera_concurrency.cjs')")
+
+
+def test_five_camera_requests_overlap_without_mixing_cookies(browser, app, qr_activity, monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    accounts = [browser.login(f'1380000000{i}') for i in range(1, 6)]
+    clients = [Browser(app) for _ in accounts]
+    for client in clients:
+        assert client.admin_login().status_code == 200
+    barrier = threading.Barrier(5)
+    calls = []
+    def sign(client, activity, supplied, name):
+        barrier.wait(timeout=10)
+        calls.append((client.jar[0]['value'], name))
+        return '离线并发成功'
+    monkeypatch.setattr(FakeClient, 'sign', sign)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        results = list(executor.map(lambda pair: pair[0].send(
+            f"/accounts/{pair[1]['id']}/camera-sign", {'qr': QR}), zip(clients, accounts)))
+    assert [r.status_code for r in results] == [200] * 5
+    assert sorted(calls) == [(f'1380000000{i}', f'测试用户000{i}') for i in range(1, 6)]

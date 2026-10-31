@@ -1,7 +1,9 @@
 """Display preferences never alter the account's real platform identity."""
 import re
+import math
 
-DEFAULT_PREFERENCES = {'account_label': 'phone_tail', 'include_group_sign': False}
+DEFAULT_PREFERENCES = {'account_label': 'phone_tail', 'include_group_sign': False,
+                       'camera_concurrency': 1, 'camera_scan_interval': 0.1}
 LABEL_MODES = {'phone_tail', 'surname_mask', 'full_name', 'masked_surname', 'surname_tail'}
 COMPOUND_SURNAMES = set('欧阳 司马 上官 诸葛 东方 皇甫 尉迟 公孙 慕容 司徒 司空 夏侯 令狐 宇文 长孙 轩辕 闻人 赫连 澹台 宗政 濮阳 公冶 太史 仲孙 申屠 端木 申公 南宫 万俟'.split())
 
@@ -12,6 +14,11 @@ def validate_preferences(data, current):
     value = {**DEFAULT_PREFERENCES, **current, **data}
     if not isinstance(value['account_label'], str) or value['account_label'] not in LABEL_MODES or type(value['include_group_sign']) is not bool:
         raise ValueError('用户显示方式或群聊签到开关无效')
+    if type(value['camera_concurrency']) is not int or not 1 <= value['camera_concurrency'] <= 5:
+        raise ValueError('扫码签到并发数需要是 1～5 的整数')
+    interval = value['camera_scan_interval']
+    if type(interval) not in (int, float) or not math.isfinite(interval) or not 0.05 <= interval <= 10:
+        raise ValueError('两次识别间隔需要在 0.05～10 秒之间')
     return value
 
 
