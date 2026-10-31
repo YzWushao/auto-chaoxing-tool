@@ -1,0 +1,6 @@
+# Install as /etc/auto-chaoxing-tool/environment.
+# systemd: root owned, mode 0600; Baota wrapper: root:autochaoxing, mode 0640.
+AUTO_CHAOXING_DATA_DIR=/var/lib/auto-chaoxing-tool
+AUTO_CHAOXING_ALLOWED_HOSTS=localhost,127.0.0.1,[::1],tool.example.com
+# Set to 1 when the user-facing reverse proxy serves HTTPS.
+AUTO_CHAOXING_HTTPS=1

@@ -1,0 +1,29 @@
+[Unit]
+Description=Auto Chaoxing Tool web console
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=autochaoxing
+Group=autochaoxing
+WorkingDirectory=/opt/auto-chaoxing-tool
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONIOENCODING=utf-8
+EnvironmentFile=/etc/auto-chaoxing-tool/environment
+ExecStart=/opt/auto-chaoxing-tool/.venv/bin/python -u run.py --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+KillMode=control-group
+UMask=0077
+StateDirectory=auto-chaoxing-tool
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/auto-chaoxing-tool
+
+[Install]
+WantedBy=multi-user.target

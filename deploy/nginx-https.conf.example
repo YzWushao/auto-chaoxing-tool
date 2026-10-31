@@ -1,0 +1,27 @@
+# Install after replacing tool.example.com and providing a valid certificate.
+# This example never listens on 80 or 443.
+server {
+    listen 8443 ssl;
+    listen [::]:8443 ssl;
+    server_name tool.example.com;
+
+    ssl_certificate /etc/auto-chaoxing-tool/tls/fullchain.pem;
+    ssl_certificate_key /etc/auto-chaoxing-tool/tls/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:AutoChaoxingTLS:10m;
+    ssl_session_timeout 1d;
+
+    client_max_body_size 10m;
+    location / {
+        proxy_pass http://127.0.0.1:8765;
+        proxy_http_version 1.1;
+        # Preserve the external nonstandard port for same-origin / CSRF checks.
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Connection "";
+        proxy_read_timeout 180s;
+        proxy_send_timeout 180s;
+        proxy_redirect off;
+    }
+}

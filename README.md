@@ -69,6 +69,8 @@ python -m venv .venv
 
 环境变量 `AUTO_CHAOXING_DATA_DIR` 可更改数据目录；`AUTO_CHAOXING_ALLOWED_HOSTS` 可指定允许的主机名（逗号分隔）；HTTPS 反向代理部署时设置 `AUTO_CHAOXING_HTTPS=1`。服务可用 `--host`、`--port` 配置监听地址。当前版本以本机部署为默认使用场景，尚未完成公网多租户部署验收。
 
+[Linux 虚拟机部署说明](docs/deployment.md) 提供普通服务用户、数据迁移、开机自启及不开放 80 / 443 时的 HTTPS 配置；示例位于 `deploy/`，实际服务器配置与证书独立保存。
+
 ## 测试与当前限制
 
 ```powershell
