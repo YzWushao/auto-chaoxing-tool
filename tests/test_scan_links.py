@@ -167,6 +167,19 @@ def test_origin_json_csrf_and_no_store_boundaries(grant):
     assert client.post('/scan-api/submit', json={'qr': 'x'*9000}, headers=headers).status_code == 400
 
 
+def test_https_origin_works_behind_http_reverse_proxy_and_keeps_secure_cookie(grant):
+    app = grant['app']
+    app.config['SESSION_COOKIE_SECURE'] = True
+    client = app.test_client()
+    # Exactly the production topology: browser HTTPS, proxy-to-Waitress HTTP.
+    headers = {'X-Scan-Request': '1', 'Origin': 'https://localhost'}
+    response = client.post('/scan-api/claim', json={'token': grant['issue']()}, headers=headers)
+    assert response.status_code == 200
+    assert 'Secure;' in response.headers['Set-Cookie']
+    assert client.post('/scan-api/close', json={}, headers={**headers, 'X-Scan-CSRF': response.json['csrf']}).status_code == 200
+    assert client.post('/scan-api/claim', json={'token': grant['issue']()}, headers=HEADERS).status_code == 403
+
+
 @pytest.mark.parametrize('value', ['http://example.invalid', 'https://u:p@example.invalid', 'https://example.invalid/path',
                                  'https://example.invalid/?token=x', 'javascript:alert(1)', 'https://example.invalid:99999'])
 def test_public_origin_configuration_rejects_unsafe_or_ambiguous_urls(value):

@@ -150,8 +150,12 @@ def install_scan_routes(app, links):
     def guard():
         if request.path == '/scan':
             return
+        # TLS terminates at Nginx; the loopback WSGI connection remains HTTP.
+        # Use the operator's HTTPS configuration, never an untrusted forwarded header.
+        scheme = 'https' if app.config['SESSION_COOKIE_SECURE'] else request.scheme
+        origin = scheme + '://' + request.host
         if (request.headers.get('X-Scan-Request') != '1' or
-                (request.method == 'POST' and request.headers.get('Origin') != request.host_url.rstrip('/'))):
+                (request.method == 'POST' and request.headers.get('Origin') != origin)):
             return jsonify(error='扫码请求来源无效'), 403
         if request.method == 'POST' and (not request.is_json or (request.content_length or 0) > 8192):
             return jsonify(error='扫码请求格式无效'), 400
