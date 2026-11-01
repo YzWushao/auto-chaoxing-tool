@@ -26,6 +26,7 @@ from .tasks import ACTIVE, TaskManager
 from .signing import SignService
 from .preferences import account_label, validate_preferences
 from .camera_sign import CameraSignService, CameraRateLimit
+from .scan_links import ScanLinks, install_scan_routes
 from .napcat import NapCatManager, public_settings as public_napcat_settings, validate_settings as validate_napcat_settings, test_connection as test_napcat_connection
 
 
@@ -77,7 +78,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def security_headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
         # OSM's tile policy requires a Referer; only the origin crosses sites.
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Referrer-Policy"] = "no-referrer" if request.path.startswith(('/scan', '/static/scan-link')) else "strict-origin-when-cross-origin"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; media-src 'self' blob:; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         response.headers['Permissions-Policy'] = 'camera=(self), microphone=()'
@@ -179,7 +180,11 @@ def create_app(config=None, client_factory=ChaoxingClient):
     signing = SignService(store, use_client, account_locks)
     camera_sign = CameraSignService(signing)
     napcat = NapCatManager(store, signing)
-    app.extensions.update(signing=signing, napcat=napcat)
+    scan_links = ScanLinks(store, camera_sign, napcat.settings)
+    napcat.scan_links = scan_links
+    napcat.conversation.scan_links = scan_links
+    install_scan_routes(app, scan_links)
+    app.extensions.update(signing=signing, napcat=napcat, scan_links=scan_links)
 
     def finish_login(client, profile, target_id=None):
         if not store.admin_session(session.get("admin_sid")):
@@ -325,6 +330,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def napcat_save():
         value = validate_napcat_settings(body(), store.napcat_settings(g.admin['owner']))
         napcat.stop()
+        scan_links.revoke_all()
         store.set_napcat_settings(g.admin['owner'], value)
         if not app.config.get('TESTING'):
             napcat.start()

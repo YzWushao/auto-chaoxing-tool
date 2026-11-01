@@ -19,8 +19,9 @@ from .config import MASK
 from .sign_coordinates import location_parameters
 from .preferences import account_label
 from .sign_images import qq_picture, ImageReadError, ImageStream
+from .scan_links import validate_scan_base_url
 
-DEFAULT = {'enabled': False, 'ws_url': '', 'token': '', 'allowed_qqs': []}
+DEFAULT = {'enabled': False, 'ws_url': '', 'token': '', 'allowed_qqs': [], 'scan_base_url': ''}
 KINDS = {'normal': '普通', 'qr': '二维码', 'location': '位置', 'gesture': '手势（请用网页）', 'code': '签到码（请用网页）'}
 
 
@@ -53,6 +54,7 @@ def validate_settings(data, current):
     if not isinstance(qqs, list) or len(qqs) > 100 or any(not isinstance(q, str) or not re.fullmatch(r'[1-9][0-9]{4,14}', q) for q in qqs):
         raise ValueError('授权 QQ 需为有效 QQ 号列表，最多 100 个')
     value['allowed_qqs'] = list(dict.fromkeys(qqs))
+    value['scan_base_url'] = validate_scan_base_url(value['scan_base_url'])
     if value['enabled'] and not (value['ws_url'] and token and qqs):
         raise ValueError('启用前请填写地址、Token 和至少一个授权 QQ')
     return value
@@ -119,10 +121,22 @@ def test_connection(value):
 
 
 class SignConversation:
-    def __init__(self, store, signing, owner, rpc, settings, image_stream=None):
+    def __init__(self, store, signing, owner, rpc, settings, image_stream=None, scan_links=None):
         self.store, self.signing, self.owner, self.rpc, self.settings = store, signing, owner, rpc, settings
         self.sessions, self.rates = {}, {}
         self.image_stream = image_stream
+        self.scan_links = scan_links
+
+    def scan_entry(self, qq, state, activities):
+        if not self.scan_links:
+            return ''
+        link = self.scan_links.issue(qq, state['owner'], state['account_id'], activities)
+        return ('\n一次性摄像头扫码入口（免控制台登录）：\n' + link +
+                '\n只能为本次所选用户扫码；5 分钟内有效，仅可领取一次，完成一个活动或关闭后失效。请在浏览器中打开并允许摄像头。') if link else ''
+
+    def revoke_scan(self, qq):
+        if self.scan_links:
+            self.scan_links.revoke(qq)
 
     def accounts(self):
         admin = self.store.administrator()
@@ -153,6 +167,8 @@ class SignConversation:
             lines.append(f'{i+1}. {label[:200]}')
         if len(choices) > size:
             lines.append(f'第 {page+1}/{(len(choices)+size-1)//size} 页；可回复“下一页”或“上一页”，序号跨页不变。')
+        if state['phase'] == 'activity' and state.get('scan_entry'):
+            lines.append(state['scan_entry'])
         lines.append('回复“签到”重新选择用户，回复“取消”结束。5 分钟未操作会过期。')
         self.send(qq, '\n'.join(lines))
 
@@ -184,13 +200,16 @@ class SignConversation:
         images = [s for s in segments if s.get('type') == 'image']
         state = self.sessions.get(qq)
         if state and now-state['touched'] > 300:
+            self.revoke_scan(qq)
             self.sessions.pop(qq, None)
             state = None
         if text == '取消':
+            self.revoke_scan(qq)
             self.sessions.pop(qq, None)
             self.send(qq, '已取消本次签到会话。')
             return
         if text in {'签到', '签退'}:
+            self.revoke_scan(qq)
             mode = self.store.preferences(self.owner)['account_label']
             choices = [{'id': a['id'], 'owner': a['owner'], 'name': account_label(a, mode), 'status': a['status']} for a in self.accounts()]
             self.sessions.pop(qq, None)
@@ -238,6 +257,7 @@ class SignConversation:
                             self.send(qq, '当前没有进行中的签到。回复“签到”可重新刷新。')
                         return
                     state.update(phase='activity', choices=activities, owner=item['owner'], account_id=item['id'], name=item['name'], page=0)
+                    state['scan_entry'] = self.scan_entry(qq, state, activities)
                     self.show(qq, state)
                     return
                 if state['phase'] == 'activity':
@@ -251,7 +271,7 @@ class SignConversation:
                     state['source'] = item.get('source', 'course')
                     if item['kind'] == 'qr':
                         state['phase'] = 'qr'
-                        self.send(qq, '请上传本次签到二维码图片。收到后会本地解码并提交，平台结果会回复到这里；回复“取消”可结束。')
+                        self.send(qq, '请上传本次签到二维码图片。收到后会本地解码并提交，平台结果会回复到这里；回复“取消”可结束。' + self.scan_entry(qq, state, [item]))
                         return
                     if item['kind'] == 'location':
                         choices = [dict(p, school=s['school']) for s in self.store.location_presets(self.owner) for p in s['points']]
@@ -269,6 +289,7 @@ class SignConversation:
                     supplied = {'kind': 'location', **location_parameters(latest)}
             supplied.update(activity_id=state['activity_id'], source=state.get('source','course'), _detected_kind=supplied['kind'])
             result = self.signing.submit(state['owner'], state['account_id'], supplied)
+            self.revoke_scan(qq)
             self.sessions.pop(qq, None)
             self.send(qq, state['name'] + '：' + result['message'] + '\n回复“签到”可继续。')
         except ImageReadError as error:
@@ -294,6 +315,7 @@ class NapCatManager:
         self.lock = threading.RLock()
         self.pending, self.socket, self.threads = {}, None, []
         self.stop_event = threading.Event()
+        self.scan_links = None
         self.queue = queue.Queue(maxsize=128)
         self.status_value = {'state': 'disabled', 'message': '未启用', 'bot_qq': ''}
         self.conversation = SignConversation(store, signing, self.owner, self.rpc, self.settings, self.image_stream)
@@ -320,7 +342,7 @@ class NapCatManager:
                 return
             self.stop_event = threading.Event()
             self.queue = queue.Queue(maxsize=128)
-            self.conversation = SignConversation(self.store, self.signing, self.owner, self.rpc, self.settings, self.image_stream)
+            self.conversation = SignConversation(self.store, self.signing, self.owner, self.rpc, self.settings, self.image_stream, self.scan_links)
             self.threads = [threading.Thread(target=self.run, daemon=True, name='napcat-receive'), threading.Thread(target=self.work, daemon=True, name='napcat-conversation')]
             for thread in self.threads:
                 thread.start()

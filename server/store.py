@@ -259,9 +259,10 @@ class Store:
             db.execute('INSERT INTO console_preferences VALUES (?,?) ON CONFLICT(owner) DO UPDATE SET value=excluded.value', (owner, self.seal(value)))
 
     def napcat_settings(self, owner):
+        from .napcat import DEFAULT
         with self.connect() as db:
             row = db.execute('SELECT value FROM napcat_settings WHERE owner=?', (owner,)).fetchone()
-            return self.unseal(row['value']) if row else {'enabled': False, 'ws_url': '', 'token': '', 'allowed_qqs': []}
+            return {**DEFAULT, **self.unseal(row['value'])} if row else dict(DEFAULT)
 
     def set_napcat_settings(self, owner, value):
         with self.connect() as db:

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>一次性扫码签到</title>
+  <link rel="stylesheet" href="/static/scan-link.css?v=0.8.0">
+  <script src="/static/camera-queue.js?v=0.8.0" defer></script>
+  <script src="/static/scan-link.js?v=0.8.0" defer></script>
+</head>
+<body>
+  <main>
+    <span class="eyebrow">AUTO CHAOXING · SCAN</span>
+    <h1>一次性扫码签到</h1>
+    <p class="intro">将摄像头对准本次签到二维码，识别后自动提交。</p>
+    <section class="card">
+      <div class="status-bar"><span class="badge">仅限本次扫码</span><span id="remaining">正在检查入口…</span></div>
+      <div class="preview"><video id="video" autoplay muted playsinline aria-label="摄像头预览"></video><div class="guide" aria-hidden="true"></div><span>将二维码放入画面</span></div>
+      <p id="status" role="status" aria-live="polite">正在领取本次扫码权限…</p>
+      <div class="actions"><button id="start" disabled>开启摄像头</button><button id="close" class="secondary" disabled>结束并关闭入口</button></div>
+      <p class="note">免控制台登录。首次使用需允许浏览器访问摄像头；画面仅在本设备识别。入口最多保留 5 分钟，完成一个活动、主动结束或离开页面后失效。</p>
+      <p class="note">如 QQ 内无法开启摄像头，请先将原始消息中的链接复制到系统浏览器再打开。平台要求的额外验证仍需完成。</p>
+    </section>
+    <footer><a href="/legal/license">AGPL-3.0</a> · <a href="https://github.com/YzWushao/auto-chaoxing-tool" rel="noreferrer">源代码</a></footer>
+  </main>
+</body>
+</html>
