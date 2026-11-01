@@ -79,6 +79,8 @@
 
 ## 直接复用 ChaoxingSignFaker 模型（v0.7.0，2026-10-28）
 
+设备码持久化与 `deviceCode` 参数字段也参考该固定版本的 `ChaoxingDeviceInfoHelper.kt`、`ChaoxingHttpRequester.kt` 和签到器；v0.9.0 的 Python 存储、随机生成和网页管理为本项目实现。保留上游 AGPL-3.0 署名与许可；具体差异见 [设备码说明](docs/device-codes.md)，没有引入 Android OAID SDK 或复制原生设备证明生成代码。
+
 - 版权：Copyright (c) 2026 aquamarine5 / Brainspark。固定来源版本仍为 `0346adf72dde1d3fea5600232c575ad2211641c3`；许可证 AGPL-3.0，完整原文保留于 `licenses/ChaoxingSignFaker-AGPL-3.0.txt`。
 - `models/chaoxing-captcha/captcha.ort` 从上游 `app/src/main/assets/captcha.ort` 原样复制。Python 推理适配 `server/captcha_model.py` 依据上游 `ChaoxingCaptchaPredictor.kt`，保留预处理、阈值、NMS 和偏移规则。
 - 部分 CPU 不支持原模型 FP16 MatMul。`captcha-cpu.onnx` 由公开的 `build_cpu.py` 将同一权重与图中的 FP16 扩展为 FP32，不重新训练，不替换其他模型；数值结果不承诺与 Android 逐位相同。文件哈希、构建依赖和具体步骤见 [模型说明](models/chaoxing-captcha/README.md)。

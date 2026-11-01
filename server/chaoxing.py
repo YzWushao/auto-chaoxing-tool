@@ -82,6 +82,7 @@ class ChaoxingClient:
     SIGN_BASE = "https://mobilelearn.chaoxing.com"
 
     def __init__(self, cookies=None):
+        self.device_code = ''
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
@@ -217,6 +218,8 @@ class ChaoxingClient:
         course = activity["course"]
         params = {"name": name, "activeId": activity["id"], "uid": uid, "fid": self.cookie("fid", "0"),
                   "appType": "15", "clientip": "", "useragent": "", "latitude": "-1", "longitude": "-1"}
+        if self.device_code:
+            params['deviceCode'] = self.device_code
         if kind == "qr":
             raw = str(supplied.get("qr", "")).strip()
             fields = parse_qs(raw[7:].partition('-')[0] if raw.startswith('SIGNIN:') else urlsplit(raw).query)

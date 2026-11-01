@@ -15,13 +15,14 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet
 from werkzeug.security import check_password_hash, generate_password_hash
+from .device_codes import DeviceBindings
 
 
 def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-class Store:
+class Store(DeviceBindings):
     """SQLite transactions + encrypted platform sessions and configuration."""
 
     def __init__(self, directory):
@@ -52,6 +53,10 @@ class Store:
                 CREATE TABLE IF NOT EXISTS map_settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS napcat_settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS console_preferences (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS account_devices (
+                    account_id TEXT PRIMARY KEY, owner TEXT NOT NULL, value TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS device_settings (owner TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS napcat_messages (
                     bot TEXT NOT NULL, qq TEXT NOT NULL, message_id TEXT NOT NULL, received_at REAL NOT NULL,
                     PRIMARY KEY(bot, qq, message_id)
@@ -109,6 +114,9 @@ class Store:
                 db.executemany("INSERT INTO admin_workspaces VALUES (1,?)", [(o,) for o in set([primary, *owners])])
             # A server restart never silently restarts an operation against a real account.
             db.execute("UPDATE jobs SET state='interrupted', finished_at=?, prompt=NULL WHERE state IN ('queued','running','waiting','stopping')", (now(),))
+            device_accounts = db.execute('SELECT owner,id FROM accounts').fetchall()
+        for item in device_accounts:
+            self.device_binding(item['owner'], item['id'])
 
     @contextmanager
     def connect(self):
@@ -197,6 +205,7 @@ class Store:
                            (profile["name"], profile.get("phone") or row["phone"], self.seal(cookies), stamp, account_id))
             else:
                 db.execute("INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?)", (account_id, owner, profile["uid"], profile["name"], profile.get("phone", ""), "active", self.seal(cookies), self.seal(defaults), stamp, stamp))
+        self.device_binding(owner, account_id)
         return self.account(owner, account_id)
 
     def _account(self, row):

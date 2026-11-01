@@ -164,6 +164,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
 
     def use_client(value, action):
         client = client_factory(value["cookies"])
+        client.device_code = store.device_binding(value['owner'], value['id'])['code']
         try:
             result = action(client)
             store.update_account(value["owner"], value["id"], cookies=client.cookies(), status="active")
@@ -320,6 +321,38 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def napcat_settings():
         return jsonify(napcat_settings=public_napcat_settings(store.napcat_settings(g.admin['owner'])), napcat_status=napcat.status())
 
+    def device_payload():
+        mode = store.preferences(g.admin['owner'])['account_label']
+        return {'device_settings': store.device_settings(g.admin['owner']),
+                'device_bindings': [{'id': a['id'], 'name': account_label(a, mode),
+                                     **store.device_binding(a['owner'], a['id'])} for a in accounts()]}
+
+    @app.get('/api/devices')
+    def devices():
+        return jsonify(device_payload())
+
+    @app.put('/api/devices/global')
+    def device_global():
+        data = body()
+        if set(data) != {'code', 'apply_existing'} or type(data['apply_existing']) is not bool:
+            raise ValueError('统一设备码设置格式无效')
+        selected = [(a['owner'], a['id']) for a in accounts()] if data['apply_existing'] else []
+        store.set_device_default(g.admin['owner'], data['code'], selected)
+        return jsonify(device_payload())
+
+    @app.put('/api/accounts/<account_id>/device')
+    def device_account(account_id):
+        value, data = account(account_id), body()
+        with account_locks[account_id]:
+            if data == {'action': 'random'}:
+                store.bind_device(value['owner'], account_id, source='generated')
+            elif (set(data) <= {'action', 'code', 'source'} and data.get('action') == 'bind'
+                  and isinstance(data.get('source', 'manual'), str) and data.get('source', 'manual') in {'manual', 'browser', 'imported'}):
+                store.bind_device(value['owner'], account_id, data.get('code'), data.get('source', 'manual'))
+            else:
+                raise ValueError('设备码绑定操作无效')
+        return jsonify(device_payload())
+
     @app.put('/api/preferences')
     def preferences_save():
         value = validate_preferences(body(), store.preferences(g.admin['owner']))
@@ -468,6 +501,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
             raise ValueError("请先停止该用户的刷课任务")
         with store.connect() as db:
             db.execute("DELETE FROM accounts WHERE owner=? AND id=?", (value["owner"], account_id))
+            db.execute('DELETE FROM account_devices WHERE owner=? AND account_id=?', (value['owner'], account_id))
         return jsonify(ok=True)
 
     @app.get("/api/accounts/<account_id>/courses")
