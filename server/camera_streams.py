@@ -53,7 +53,7 @@ class CameraRun:
             items = [dict(id=a['id'],name=a['name'],state=a['state'],attempts=a['attempts'],failures=a['failures'],message=a['message'])
                      for a in self.entries.values()]
             if private:
-                items = [{**a,'id':str(index),'name':'当前用户'} for index,a in enumerate(items)]
+                items = [{**a,'id':str(index),'name':'当前用户' if len(items)==1 else f'用户 {index+1}'} for index,a in enumerate(items)]
             return {'id':self.id,'state':self.state,'terminal':self.state in TERMINAL,'message':self.message,
                     'frame_interval':self.frame_interval,'input':self.input_mode,
                     'remaining_seconds':max(0,self.expires-time.monotonic()),'frames':self.frame_count,

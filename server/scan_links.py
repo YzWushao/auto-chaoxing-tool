@@ -74,18 +74,30 @@ class ScanLinks:
             self.sessions.clear()
 
     def issue(self, qq, owner, account_id, activities):
+        return self.issue_many(qq,[dict(owner=owner,account_id=account_id,activities=activities)])
+
+    def issue_many(self, qq, targets):
         config = self.settings()
         base = validate_scan_base_url(config.get('scan_base_url', ''))
-        allowed = frozenset(a['id'] for a in activities if a['kind'] == 'qr' and not a.get('photo') and not a.get('signed'))
         self.revoke(qq)
+        if not targets or len(targets)>200:
+            return None
+        allowed = None
+        accounts = {}
+        for target in targets:
+            permitted = frozenset(a['id'] for a in target['activities'] if a['kind']=='qr' and not a.get('photo') and not a.get('signed'))
+            allowed = permitted if allowed is None else allowed & permitted
+            accounts[(target['owner'],target['account_id'])] = dict(owner=target['owner'],id=target['account_id'])
         if not base or not allowed or not config['enabled'] or qq not in config['allowed_qqs']:
             return None
+        accounts = tuple(accounts.values())
+        owner,account_id = accounts[0]['owner'],accounts[0]['id']
         with self.lock:
             self._prune()
             if len(self.tickets) + len(self.sessions) >= 128:
                 return None
             token = secrets.token_urlsafe(32)
-            self.tickets[digest(token)] = dict(qq=qq, owner=owner, account_id=account_id, allowed=allowed,
+            self.tickets[digest(token)] = dict(qq=qq, owner=owner, account_id=account_id, accounts=accounts, allowed=allowed,
                 active=True, expires=time.monotonic()+self.ttl, lock=threading.Lock(), bound=None)
         # Fragments are never sent in HTTP requests, access logs or Referer.
         return base + '/scan#' + token
@@ -95,7 +107,7 @@ class ScanLinks:
         if (not entry or not entry['active'] or entry['expires'] <= time.monotonic()
                 or not config['enabled'] or entry['qq'] not in config['allowed_qqs']):
             raise ScanLinkExpired()
-        if not self.store.account(entry['owner'], entry['account_id']):
+        if any(not self.store.account(a['owner'],a['id']) for a in entry['accounts']):
             entry['active'] = False
             raise ScanLinkExpired()
 
@@ -127,7 +139,7 @@ class ScanLinks:
 
     def status(self, entry):
         self._alive(entry)
-        if any(self.store.signed(entry['owner'], entry['account_id'], aid) for aid in entry['allowed']):
+        if any(all(self.store.signed(a['owner'],a['id'],aid) for a in entry['accounts']) for aid in entry['allowed']):
             entry['active'] = False
             raise ScanLinkExpired()
         prefs = self.store.preferences(self.camera.signing.preference_owner)
@@ -135,7 +147,7 @@ class ScanLinks:
                 'scan_interval': prefs['camera_scan_interval']}
 
     def submit(self, entry, data):
-        if set(data) != {'qr'}:
+        if set(data) != {'qr'} or len(entry['accounts'])!=1:
             raise ValueError()
         activity_id, _ = qr_parameters(data['qr'])
         # Bound on the server: no IDs, owners, sources or proof IDs from callers.
@@ -254,9 +266,11 @@ def install_scan_routes(app, links):
                     if record['active']:
                         record['stream_done'] = True
                         record['active'] = False
-            run = streams.start(('scan',id(record)),[dict(id=record['account_id'],owner=record['owner'],name='当前用户')],
+            prefs = links.store.preferences(links.camera.signing.preference_owner)
+            selected = [dict(id=a['id'],owner=a['owner'],name='当前用户') for a in record['accounts']]
+            run = streams.start(('scan',id(record)),selected,concurrency=prefs['camera_concurrency'],
                                 expires=record['expires'],allowed=record['allowed'],authority=lambda:links._alive(record),finished=finished,
-                                interval=links.store.preferences(links.camera.signing.preference_owner)['camera_scan_interval'],
+                                interval=prefs['camera_scan_interval'],
                                 input_mode=options.get('input','jpeg'))
             record['stream_id'] = run.id
             record['stream_result_access'] = True

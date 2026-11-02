@@ -18,6 +18,7 @@ from .chaoxing import PlatformError, SessionExpired, CaptchaRequired, SignRequir
 from .config import MASK
 from .sign_coordinates import location_parameters
 from .preferences import account_label
+from .qq_batch import ALL_SELECTIONS, BatchConversation, selection
 from .sign_images import qq_picture, ImageReadError, ImageStream
 from .scan_links import validate_scan_base_url
 
@@ -120,7 +121,7 @@ def test_connection(value):
     raise ValueError('NapCat 登录信息查询超时')
 
 
-class SignConversation:
+class SignConversation(BatchConversation):
     def __init__(self, store, signing, owner, rpc, settings, image_stream=None, scan_links=None):
         self.store, self.signing, self.owner, self.rpc, self.settings = store, signing, owner, rpc, settings
         self.sessions, self.rates = {}, {}
@@ -162,6 +163,8 @@ class SignConversation:
                     mode = '签退 · '+mode
                 origin = '课程/群聊' if item.get('from_group') else '群聊' if item.get('source') == 'group' else '课程'
                 label = f"[{origin}] {item['course']['title']} · {item['title']} [{mode}]" + (('（已签退）' if item.get('phase')=='out' else '（已签到）') if item['signed'] else '')
+                if item.get('targets'):
+                    label += f"（{len(item['targets'])} 位所选用户）"
             else:
                 label = item['school'] + ' · ' + item['name']
             lines.append(f'{i+1}. {label[:200]}')
@@ -169,6 +172,10 @@ class SignConversation:
             lines.append(f'第 {page+1}/{(len(choices)+size-1)//size} 页；可回复“下一页”或“上一页”，序号跨页不变。')
         if state['phase'] == 'activity' and state.get('scan_entry'):
             lines.append(state['scan_entry'])
+        if state['phase'] in {'account','activity'}:
+            lines.append('支持多选：1,3,5 或 1-5；回复“全选”或“一键全选”选择全部分页。')
+        elif state.get('batch'):
+            lines.append('该点位用于本活动的所选用户；回复“跳过”处理下一项。')
         lines.append('回复“签到”重新选择用户，回复“取消”结束。5 分钟未操作会过期。')
         self.send(qq, '\n'.join(lines))
 
@@ -221,7 +228,7 @@ class SignConversation:
             self.show(qq, state)
             return
         if state is None:
-            if text.isdecimal() or images:
+            if text.isdecimal() or text in ALL_SELECTIONS or re.fullmatch(r'[0-9\s,，、;；~～至-]+',text) or images:
                 self.send(qq, '当前没有有效签到会话，请先发送“签到”。')
             return
         state['touched'] = now
@@ -230,6 +237,20 @@ class SignConversation:
                 state['page'] = min(max(0, state['page']+(1 if text == '下一页' else -1)), (len(state['choices'])-1)//12)
                 self.show(qq, state)
                 return
+            if state.get('batch'):
+                self.batch_handle(qq, state, text, images)
+                return
+            if state['phase'] in {'account','activity'} and not images:
+                indexes = selection(text,len(state['choices']))
+                if len(indexes)>1 or (state['phase']=='activity' and text in ALL_SELECTIONS):
+                    items = [state['choices'][i] for i in indexes]
+                    if state['phase']=='account':
+                        self.batch_accounts(qq,state,items)
+                    else:
+                        groups = [{**a,'targets':[dict(owner=state['owner'],account_id=state['account_id'],name=state['name'],activity=a)]} for a in items]
+                        self.batch_start(qq,state,groups)
+                    return
+                text = str(indexes[0]+1)
             if state['phase'] == 'qr':
                 if len(images) != 1:
                     self.send(qq, '请直接上传一张签到二维码图片（不是文件或合并转发），或回复“取消”。')
