@@ -8,7 +8,7 @@ import requests
 
 from .config import MASK, VERSION
 
-DEFAULT_MAP = {'provider':'osm', 'key':'', 'security_code':''}
+DEFAULT_MAP = {'provider':'osm', 'key':'', 'security_code':'', 'free_reverse_enabled':False}
 
 
 def validate_map_settings(data, current):
@@ -16,6 +16,11 @@ def validate_map_settings(data, current):
         raise ValueError('地图设置格式错误')
     value={**DEFAULT_MAP, **current}
     for name, raw in data.items():
+        if name == 'free_reverse_enabled':
+            if type(raw) is not bool:
+                raise ValueError('免费地图地址查询开关无效')
+            value[name] = raw
+            continue
         if not isinstance(raw,str):
             raise ValueError('地图设置需要为文本')
         raw=raw.strip()
@@ -36,12 +41,14 @@ def validate_map_settings(data, current):
 
 def public_map_settings(value):
     return {'provider':value.get('provider','osm'), 'key':MASK if value.get('key') else '',
+            'free_reverse_enabled':value.get('free_reverse_enabled',False),
             'security_code':MASK if value.get('security_code') else '',
             'configured':bool(value.get('key') and value.get('security_code'))}
 
 
 class AMapProxy:
     PATHS={'v3/place/text':'https://restapi.amap.com/v3/place/text',
+           'v3/geocode/regeo':'https://restapi.amap.com/v3/geocode/regeo',
            'v5/place/text':'https://restapi.amap.com/v5/place/text',
            'v3/config/district':'https://restapi.amap.com/v3/config/district',
            'v4/map/styles':'https://webapi.amap.com/v4/map/styles'}

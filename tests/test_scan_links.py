@@ -187,7 +187,7 @@ def test_public_origin_configuration_rejects_unsafe_or_ambiguous_urls(value):
         validate_settings({'scan_base_url': value}, DEFAULT)
 
 
-def test_qq_refresh_sends_scoped_link_and_selection_replaces_it(grant):
+def test_qq_sign_sends_picker_immediately_and_repeating_replaces_it(grant):
     sent = []
     store, owner, links = grant['store'], grant['owner'], grant['links']
     chat = SignConversation(store, grant['app'].extensions['signing'], owner,
@@ -197,14 +197,15 @@ def test_qq_refresh_sends_scoped_link_and_selection_replaces_it(grant):
     def say(text, index):
         chat.handle({'user_id': QQ, 'self_id': BOT, 'post_type': 'message', 'message_type': 'private',
                      'time': time.time(), 'message_id': index, 'message': [{'type': 'text', 'data': {'text': text}}]})
-    say('签到', 1); say('1', 2)
+    say('签到', 1)
     assert '/scan#' in sent[-1] and '免控制台登录' in sent[-1]
+    assert '手动勾选' in sent[-1] and not chat.sessions
     old = sent[-1].split('/scan#')[1].split()[0]
-    say('2', 3)
-    assert '上传' in sent[-1] and '/scan#' in sent[-1]
+    say('签到', 2)
+    assert '/scan#' in sent[-1]
     with pytest.raises(ScanLinkExpired):
         links.claim(old)
     record = next(iter(links.tickets.values()))
-    assert record['allowed'] == {'902'} and record['account_id'] == grant['accounts'][0]['id']
+    assert record['picker'] and record['allowed'] is None and len(record['accounts']) == 2
     say('取消', 4)
     assert not links.tickets and not links.sessions

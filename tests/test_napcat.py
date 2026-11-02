@@ -383,7 +383,7 @@ def test_real_websocket_transport_routes_echo_and_private_events(app, browser, m
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         manager = app.extensions['napcat']
-        app.extensions['store'].set_napcat_settings(manager.owner, {'enabled': True, 'ws_url': f'ws://127.0.0.1:{server.socket.getsockname()[1]}/', 'token': TOKEN, 'allowed_qqs': [QQ]})
+        app.extensions['store'].set_napcat_settings(manager.owner, {'enabled': True, 'ws_url': f'ws://127.0.0.1:{server.socket.getsockname()[1]}/', 'token': TOKEN, 'allowed_qqs': [QQ], 'scan_base_url':'https://scan.example.invalid'})
         manager.start()
         try:
             socket = connected.get(timeout=5)
@@ -392,7 +392,9 @@ def test_real_websocket_transport_routes_echo_and_private_events(app, browser, m
                 threading.Event().wait(.02)
             assert manager.status()['state'] == 'connected'
             socket.send(json.dumps({'post_type': 'message', 'message_type': 'private', 'self_id': BOT, 'user_id': QQ, 'message_id': 1, 'time': time.time(), 'message': [{'type': 'text', 'data': {'text': '签到'}}]}))
-            assert '为谁签到' in replies.get(timeout=5)
+            response = replies.get(timeout=5)
+            assert '进入摄像头扫码签到' in response and 'https://scan.example.invalid/scan#' in response
+            assert '手动勾选' in response and not manager.conversation.sessions
         finally:
             manager.stop()
             server.shutdown()

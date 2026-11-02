@@ -25,10 +25,19 @@
         if(data.error) entry.reject(new Error(data.error));
         else {try {entry.resolve(data.results.map(p=>({...convert.toWGS84(p.point,'gcj02'),name:p.name})));} catch {entry.reject(new Error('高德搜索返回无效坐标'));}}
       }
+      if(data.type==='address' && pending.has(data.id)) {
+        const entry=pending.get(data.id);clearTimeout(entry.timer);pending.delete(data.id);
+        if(data.error||typeof data.address!=='string'||!data.address.trim()) entry.reject(new Error(data.error||'高德未返回地址'));
+        else entry.resolve({address:data.address.slice(0,200),attribution:'高德地图'});
+      }
     }
     window.addEventListener('message',receive); container.replaceChildren(frame);
     function center(point,zoom=17,accuracy) {locateId++;pendingCenter={type:'center',point:convert.fromWGS84(point,'gcj02'),zoom,accuracy};if(ready) send(pendingCenter);}
     return {provider:'amap',center,
+      async reverse(point) {
+        await readiness;if(disposed) throw abort();
+        return new Promise((resolve,reject)=>{const id=++requestId;const timer=setTimeout(()=>{pending.delete(id);reject(new Error('高德地址查询超时，请重试'));},15000);pending.set(id,{resolve,reject,timer});send({type:'reverse',id,point:convert.fromWGS84(point,'gcj02')});});
+      },
       useCenter(){locateId++;if(ready) send({type:'useCenter'});else onStatus('高德地图仍在加载，请稍后重试',true);},
       async search(query) {
         await readiness;if(disposed) throw abort();

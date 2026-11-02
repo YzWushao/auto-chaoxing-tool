@@ -485,6 +485,15 @@ def create_app(config=None, client_factory=ChaoxingClient):
             raise ValueError('需要提供地点名称')
         return jsonify(results=map_search.search(data['query']))
 
+    @app.post('/api/map/reverse')
+    def reverse_map():
+        data = body()
+        if set(data) != {'longitude', 'latitude'}:
+            raise ValueError('需要提供选点经纬度')
+        if not store.map_settings(g.admin['owner']).get('free_reverse_enabled'):
+            raise ValueError('请先在设置 → 地图服务阅读使用说明并开启免费地图地址查询')
+        return jsonify(map_search.reverse(data['longitude'], data['latitude']))
+
     @app.get('/api/location-presets')
     def location_presets():
         return jsonify(location_presets=store.location_presets(g.admin['owner']))

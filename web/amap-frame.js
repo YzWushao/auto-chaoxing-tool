@@ -3,7 +3,18 @@
 (async()=>{
   const send=data=>{if(!disposed) parent.postMessage({channel:'auto-chaoxing-amap',...data},location.origin);};
   const loading=document.querySelector('#map-loading');
-  let map,marker,circle,search,cancelLoad,disposed=false;
+  let map,marker,circle,search,cancelLoad,disposed=false,geocoderReady;
+  function geocoder() {
+    if(!geocoderReady)geocoderReady=new Promise((resolve,reject)=>{
+      const timeout=setTimeout(()=>{geocoderReady=null;reject(new Error('高德地址查询插件加载超时'));},8000);
+      AMap.plugin('AMap.Geocoder',()=>{
+        clearTimeout(timeout);
+        if(typeof AMap.Geocoder!=='function'){geocoderReady=null;reject(new Error('高德地址查询插件不可用'));}
+        else resolve(new AMap.Geocoder({extensions:'base',radius:1000}));
+      });
+    });
+    return geocoderReady;
+  }
   window.addEventListener('pagehide',()=>{disposed=true;cancelLoad?.();map?.destroy();});
   function waitForReady(start,timeout,message) {
     return new Promise((resolve,reject)=>{
@@ -71,6 +82,18 @@
           map.setZoomAndCenter(Math.min(20,Math.max(2,data.zoom||17)),p); select(p,data.accuracy);
         }
         if(data.type==='useCenter') select(map.getCenter());
+        if(data.type==='reverse') {
+          const p=data.point;
+          if(!p||!Number.isFinite(p.lng)||!Number.isFinite(p.lat)||Math.abs(p.lng)>180||Math.abs(p.lat)>90) throw new Error('选点坐标无效');
+          void geocoder().then(service=>{
+            if(disposed)return;
+            service.getAddress([p.lng,p.lat],(status,result)=>{
+              if(disposed)return;
+              const address=status==='complete'&&result.info==='OK'?result.regeocode?.formattedAddress:'';
+              send({type:'address',id:data.id,address:typeof address==='string'?address.slice(0,200):'',error:address?null:'高德未能查询到此点的地址，请手动填写或重试'});
+            });
+          }).catch(()=>send({type:'address',id:data.id,error:'高德地址查询不可用，请检查服务配额或稍后重试'}));
+        }
         if(data.type==='search') {
           if(typeof data.query!=='string' || data.query.trim().length<2 || data.query.length>120) throw new Error('请输入 2～120 个字符的公开学校或地点名称');
           search.search(data.query,(status,result)=>{
@@ -80,7 +103,7 @@
             send({type:'results',id:data.id,results,error});
           });
         }
-      } catch(error) {send({type:data.type==='search'?'results':'status',id:data.id,error:error.message||'高德地图操作失败'});}
+      } catch(error) {send({type:data.type==='search'?'results':data.type==='reverse'?'address':'status',id:data.id,error:error.message||'高德地图操作失败'});}
     });
     send({type:'ready'});
   } catch(error) {

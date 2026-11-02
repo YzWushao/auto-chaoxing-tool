@@ -187,7 +187,12 @@ def test_qq_batch_link_to_browser_completion_and_qq_continue(grant):
         counter+=1
         conversation.handle(dict(user_id=QQ,self_id=BOT,post_type='message',message_type='private',time=time.time(),message_id=counter,
                                  message=[{'type':'text','data':{'text':text}}]))
-    say('签到');say('全选');say('2')
+    # Legacy activity-scoped batch remains usable by existing callers; QQ now
+    # opens the picker immediately when capability integration is installed.
+    conversation.scan_links=None
+    say('签到');say('全选')
+    conversation.scan_links=grant['links']
+    say('2')
     assert '一次性摄像头' in sent[-1]
     token=sent[-1].split('/scan#')[1].split()[0]
     client,headers,_=claim(grant,token)

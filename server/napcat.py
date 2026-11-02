@@ -252,6 +252,15 @@ class SignConversation(BatchConversation):
             return
         if text in {'签到', '签退'}:
             self.revoke_scan(qq)
+            if text == '签到' and self.scan_links:
+                self.sessions.pop(qq, None)
+                link = self.scan_links.issue_picker(qq)
+                if not link:
+                    self.send(qq, '暂时无法生成扫码入口。请在网页设置中配置一次性扫码入口地址，并确认已有超星用户（每次最多 200 位）。')
+                    return
+                self.send(qq, '进入摄像头扫码签到：\n' + link +
+                          '\n打开后手动勾选需要签到的用户，再点击“开始扫描”。免控制台登录；入口仅可领取一次，5 分钟内有效，完成或结束后失效。')
+                return
             mode = self.store.preferences(self.owner)['account_label']
             choices = [{'id': a['id'], 'owner': a['owner'], 'name': account_label(a, mode), 'status': a['status']} for a in self.accounts()]
             self.sessions.pop(qq, None)

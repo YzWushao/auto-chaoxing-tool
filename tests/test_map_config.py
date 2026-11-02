@@ -24,7 +24,7 @@ def configure(browser,provider='osm'):
 def test_free_default_works_without_credentials(browser):
     browser.admin_login()
     value=browser.get('/bootstrap').json['map_settings']
-    assert value == {'provider':'osm','key':'','security_code':'','configured':False}
+    assert value == {'provider':'osm','key':'','security_code':'','configured':False,'free_reverse_enabled':False}
     assert browser.get('/map/runtime').status_code == 400
     assert browser.send('/map/settings',{'provider':'amap'},'PUT').status_code == 400
     assert browser.send('/map/settings',{'provider':'osm'},'PUT').status_code == 200
@@ -126,6 +126,11 @@ assert.ok(Math.abs(selected[0].lng-116.404)<1e-9);
  const request=posted.at(-1); assert.equal(request.type,'search');
  receive(event({type:'results',id:request.id,results:[{name:'test',point:{lng:116.41024449916938,lat:39.91640428150164}}]}));
  const result=await promise; assert.ok(Math.abs(result[0].lng-116.404)<1e-9);
+ const address=picker.reverse({lng:116.404,lat:39.915});await new Promise(r=>setImmediate(r));
+ const reverseRequest=posted.at(-1);assert.equal(reverseRequest.type,'reverse');
+ assert.ok(Math.abs(reverseRequest.point.lng-116.410244499)<1e-8);
+ receive(event({type:'address',id:reverseRequest.id,address:'地图返回的测试地址'}));
+ assert.equal((await address).address,'地图返回的测试地址');
  const late=picker.search('late');await new Promise(r=>setImmediate(r));picker.destroy();picker.destroy();
  await assert.rejects(late,{name:'AbortError'});assert.equal(removed,1);
 })().catch(e=>{console.error(e);process.exitCode=1;});
@@ -195,6 +200,13 @@ vm.createContext(context);vm.runInContext(fs.readFileSync('web/amap-frame.js','u
  map.center=new LngLat(120,30);map.events.dragend();assert.equal(messages.at(-1).point.lng,120);
  marker.p=new LngLat(121,31);marker.events.dragend();assert.equal(messages.at(-1).point.lng,121);
  send({type:'search',query:'school',id:9});assert.equal(messages.at(-1).id,9);assert.equal(messages.at(-1).results[0].point.lat,39.9);
+ context.AMap.plugin=(name,done)=>{
+   assert.equal(name,'AMap.Geocoder');
+   context.AMap.Geocoder=class{getAddress(point,callback){assert.equal(point[0],116.4);callback('complete',{info:'OK',regeocode:{formattedAddress:'测试真实地址'}});}};
+   done();
+ };
+ send({type:'reverse',point:{lng:116.4,lat:39.9},id:10});await tick();
+ assert.equal(messages.at(-1).type,'address');assert.equal(messages.at(-1).address,'测试真实地址');
  events.pagehide();assert.equal(map.destroyed,true);
 })().catch(e=>{console.error(e);process.exitCode=1;});
 '''

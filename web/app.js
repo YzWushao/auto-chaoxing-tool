@@ -290,7 +290,7 @@ function signFields(kind) { return (kind==='location'?locationPresetsHTML():'')+
 function baseSignFields(kind) {
   const field=(key,label,placeholder='',type='text')=>`<div class="field"><label for="sign-${key}">${label}</label><input id="sign-${key}" name="${key}" type="${type}" placeholder="${placeholder}" required ${type==='number'?'step="any"':''}></div>`;
   if(kind==='qr') return `<div class="qr-upload"><label for="sign-qr-file">上传本地二维码图片</label><input id="sign-qr-file" type="file" accept="image/png,image/jpeg,image/webp"><p class="setting-note">PNG / JPEG / WebP，最大 8 MB。仅在浏览器本地解码，自动填入下方参数；不判断活动是否匹配或二维码是否过期。</p><div class="qr-file-result" aria-live="polite"><img id="sign-qr-preview" class="hidden" alt="已选择的二维码图片"><p id="sign-qr-message">也可以直接粘贴二维码链接或 enc。</p></div></div>`+field('qr','当前签到二维码链接 / enc','上传图片后自动填入，也可手动粘贴')+'<p class="setting-note">识别成功不代表二维码仍有效。请点击“确认提交签到”，以后台和平台返回结果为准。</p>';
-  if(kind==='location') return `<div class="location-toolbar">${button('地图拾取坐标','sign-map-toggle','secondary small')}<small>放大后点击选点，或拖动标记微调</small></div><section id="sign-map-panel" class="sign-map-panel hidden" aria-label="地图坐标拾取"><div class="sign-map-controls">${button('定位当前位置','sign-map-locate','secondary small')}${button('使用地图中心','sign-map-center','secondary small')}${button('按已填坐标定位','sign-map-input','secondary small')}</div><div id="sign-map-canvas" class="sign-map-canvas" role="region" aria-label="选点地图"></div><div id="sign-map-readout" class="sign-map-readout">尚未选点，不会填入默认坐标。</div><p id="sign-map-message" class="sign-map-message" role="status">地图支持缩放至 19 级；点击地点后自动回填下方坐标。</p><p class="setting-note">在线底图由 OpenStreetMap 提供，打开地图会向其请求当前视野的图片，不发送超星账号或 Cookies。6 位小数仅为保存精度，不代表实地精确到分米；设备定位、底图和坐标转换均可能有误差。请确认本人实际位置，不用于伪造出勤。</p></section><div class="field location-system"><label for="sign-coordinate-system">回填 / 已填坐标的坐标系</label><select id="sign-coordinate-system"><option value="bd09">百度 BD-09（沿用签到参考项目）</option><option value="gcj02">高德 / 腾讯 GCJ-02</option><option value="wgs84">GPS / OpenStreetMap WGS84</option></select><small>百度与高德坐标不可混用。切换会转换当前地图选点；手填坐标不会被静默改写。最终要求以当前平台为准。</small></div><div class="field-grid">${field('longitude','经度','如 116.40','number')}${field('latitude','纬度','如 39.90','number')}<div class="field full">${field('address','位置说明','请核对并填写实际地点')}</div></div>`;
+  if(kind==='location') return `<div class="location-toolbar">${button('地图拾取坐标','sign-map-toggle','secondary small')}<small>放大后点击选点，或拖动标记微调</small></div><section id="sign-map-panel" class="sign-map-panel hidden" aria-label="地图坐标拾取"><div class="sign-map-controls">${button('定位当前位置','sign-map-locate','secondary small')}${button('使用地图中心','sign-map-center','secondary small')}${button('按已填坐标定位','sign-map-input','secondary small')}<button type="button" class="button secondary small" data-map-address="sign">获取位置说明</button></div><div id="sign-map-canvas" class="sign-map-canvas" role="region" aria-label="选点地图"></div><div id="sign-map-readout" class="sign-map-readout">尚未选点，不会填入默认坐标。</div><p id="sign-map-message" class="sign-map-message" role="status">地图支持缩放至 19 级；点击地点后自动回填下方坐标。</p><p class="setting-note">在线底图由 OpenStreetMap 提供，打开地图会向其请求当前视野的图片，不发送超星账号或 Cookies。6 位小数仅为保存精度，不代表实地精确到分米；设备定位、底图和坐标转换均可能有误差。请确认本人实际位置，不用于伪造出勤。</p></section><div class="field location-system"><label for="sign-coordinate-system">回填 / 已填坐标的坐标系</label><select id="sign-coordinate-system"><option value="bd09">百度 BD-09（沿用签到参考项目）</option><option value="gcj02">高德 / 腾讯 GCJ-02</option><option value="wgs84">GPS / OpenStreetMap WGS84</option></select><small>百度与高德坐标不可混用。切换会转换当前地图选点；手填坐标不会被静默改写。最终要求以当前平台为准。</small></div><div class="field-grid">${field('longitude','经度','如 116.40','number')}${field('latitude','纬度','如 39.90','number')}<div class="field full">${field('address','位置说明','请核对并填写实际地点')}</div></div>`;
   if(kind==='photo') return field('object_id','超星云盘图片 objectId','填写已经上传的图片对象 ID')+'<p class="setting-note">初期版本支持已有图片对象 ID，网页直接上传图片列入后续优化。</p>';
   if(kind==='gesture'||kind==='code') return field('code',kind==='gesture'?'手势数字序列':'签到码','输入本次活动提供的数字');
   return '<p class="setting-note">将使用当前用户会话提交此普通签到活动。</p>';
@@ -340,6 +340,7 @@ function applyLocationPreset() {
 }
 
 function closeSignMap() {
+  MapAddressLookup.cancel('sign');
   stopMapSearch('sign');
   state.signMap?.destroy(); state.signMap=null;
   $('#modal').classList.remove('map-expanded');
@@ -352,14 +353,10 @@ function fillSignMap(point,accuracy) {
   state.signMapPoint=point;
   const target=$('#sign-coordinate-system').value, value=SignMap.formatted(point,target);
   $('#sign-longitude').value=value.longitude; $('#sign-latitude').value=value.latitude;
-  const address=$('#sign-address');
-  if(!address.value || address.value===state.signMapAddress) {
-    state.signMapAddress=`地图选点（经度 ${value.longitude}，纬度 ${value.latitude}）`;
-    address.value=state.signMapAddress;
-  }
   $('#sign-error').textContent='';
   if($('#sign-map-readout')) $('#sign-map-readout').textContent=`${target.toUpperCase()} · 经度 ${value.longitude} · 纬度 ${value.latitude}`;
   signMapStatus(Number.isFinite(accuracy)?`设备报告的定位误差半径约 ${Math.ceil(accuracy)} 米${accuracy>100?'，当前定位较粗，请放大并核对':''}。已回填，请核对位置说明。`:'已回填选点坐标，请核对位置说明；尚未提交签到。');
+  MapAddressLookup.queue('sign',point);
 }
 function toggleSignMap() {
   const panel=$('#sign-map-panel');
@@ -508,7 +505,7 @@ document.addEventListener('submit',async event=>{
   const form=event.target; if(!['global-api-form','study-config-form','sign-form','job-input-form','admin-settings-form','preset-edit-form','school-edit-form','map-settings-form'].includes(form.id)) return;
   event.preventDefault(); const accountId=state.active;
   await busy($('button[type="submit"]',form), async()=>{
-    if(form.id==='map-settings-form') { try {const data=await api('/map/settings','PUT',Object.fromEntries(new FormData(form)));state.map_settings=data.map_settings;render();toast('地图设置已保存，重新打开选点窗口生效');} catch(error) {$('#map-settings-error').textContent=error.message;throw error;} }
+    if(form.id==='map-settings-form') { try {const payload=Object.fromEntries(new FormData(form));payload.free_reverse_enabled=form.elements.free_reverse_enabled.checked;const data=await api('/map/settings','PUT',payload);state.map_settings=data.map_settings;render();toast('地图设置已保存，重新打开选点窗口生效');} catch(error) {$('#map-settings-error').textContent=error.message;throw error;} }
     if(form.id==='school-edit-form') { try { await saveSchoolEditor(form); } catch(error) { $('#school-edit-error').textContent=error.message; throw error; } }
     if(form.id==='preset-edit-form') { try { await savePresetEditor(form); } catch(error) { $('#preset-edit-error').textContent=error.message; throw error; } }
     if(form.id==='admin-settings-form') {

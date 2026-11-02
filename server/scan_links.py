@@ -13,6 +13,7 @@ from .camera_sign import CameraRateLimit, qr_parameters
 from .chaoxing import CaptchaRequired, PlatformError, SessionExpired, SignRequirement
 from .config import ROOT
 from .qr_frames import FrameBusy, MAX_FRAME_BYTES
+from .preferences import account_label
 
 
 class ScanLinkExpired(Exception):
@@ -91,6 +92,25 @@ class ScanLinks:
         if not base or not allowed or not config['enabled'] or qq not in config['allowed_qqs']:
             return None
         accounts = tuple(accounts.values())
+        return self._mint(qq, base, accounts, allowed)
+
+    def issue_picker(self, qq):
+        """Authorize a snapshotted user picker, not a console or arbitrary owners."""
+        config = self.settings()
+        base = validate_scan_base_url(config.get('scan_base_url', ''))
+        self.revoke(qq)
+        if not base or not config.get('enabled') or qq not in config.get('allowed_qqs', []):
+            return None
+        admin = self.store.administrator()
+        mode = self.store.preferences(self.camera.signing.preference_owner)['account_label']
+        accounts = tuple(dict(owner=a['owner'], id=a['id'], alias=secrets.token_urlsafe(12),
+                              name=account_label(a, mode)[:160])
+                         for owner in self.store.managed_owners(admin['id']) for a in self.store.accounts(owner))
+        if not accounts or len(accounts) > 200:
+            return None
+        return self._mint(qq, base, accounts, None, picker=True)
+
+    def _mint(self, qq, base, accounts, allowed, picker=False):
         owner,account_id = accounts[0]['owner'],accounts[0]['id']
         with self.lock:
             self._prune()
@@ -98,7 +118,7 @@ class ScanLinks:
                 return None
             token = secrets.token_urlsafe(32)
             self.tickets[digest(token)] = dict(qq=qq, owner=owner, account_id=account_id, accounts=accounts, allowed=allowed,
-                active=True, expires=time.monotonic()+self.ttl, lock=threading.Lock(), bound=None)
+                picker=picker, active=True, expires=time.monotonic()+self.ttl, lock=threading.Lock(), bound=None)
         # Fragments are never sent in HTTP requests, access logs or Referer.
         return base + '/scan#' + token
 
@@ -110,6 +130,11 @@ class ScanLinks:
         if any(not self.store.account(a['owner'],a['id']) for a in entry['accounts']):
             entry['active'] = False
             raise ScanLinkExpired()
+        if entry.get('picker'):
+            owners = self.store.managed_owners(self.store.administrator()['id'])
+            if any(a['owner'] not in owners for a in entry['accounts']):
+                entry['active'] = False
+                raise ScanLinkExpired()
 
     def claim(self, token):
         if not isinstance(token, str) or len(token) != 43:
@@ -139,15 +164,38 @@ class ScanLinks:
 
     def status(self, entry):
         self._alive(entry)
-        if any(all(self.store.signed(a['owner'],a['id'],aid) for a in entry['accounts']) for aid in entry['allowed']):
+        if entry['allowed'] and any(all(self.store.signed(a['owner'],a['id'],aid) for a in entry['accounts']) for aid in entry['allowed']):
             entry['active'] = False
             raise ScanLinkExpired()
         prefs = self.store.preferences(self.camera.signing.preference_owner)
-        return {'remaining_seconds': max(0, entry['expires']-time.monotonic()),
-                'scan_interval': prefs['camera_scan_interval']}
+        result = {'remaining_seconds': max(0, entry['expires']-time.monotonic()),
+                  'scan_interval': prefs['camera_scan_interval']}
+        if entry.get('picker'):
+            result.update(select_users=True, concurrency=prefs['camera_concurrency'], accounts=[
+                dict(id=a['alias'], name=a['name'], status=self.store.account(a['owner'], a['id'])['status']) for a in entry['accounts']])
+        return result
+
+    def select_users(self, entry, aliases):
+        if (not isinstance(aliases, list) or not 1 <= len(aliases) <= 200
+                or any(not isinstance(a, str) for a in aliases) or len(set(aliases)) != len(aliases)):
+            raise ValueError()
+        candidates = {a['alias']: a for a in entry['accounts']}
+        if any(alias not in candidates for alias in aliases):
+            raise ValueError()
+        selected = tuple(candidates[alias] for alias in aliases)
+        if any(self.store.account(a['owner'], a['id'])['status'] != 'active' for a in selected):
+            raise ValueError()
+        return selected
+
+    def snapshot(self, entry, run):
+        result = run.snapshot(private=True)
+        if entry.get('picker'):
+            result['accounts'] = [dict(row, id=a['alias'], name=a['name'])
+                                  for row, a in zip(result['accounts'], entry['accounts'])]
+        return result
 
     def submit(self, entry, data):
-        if set(data) != {'qr'} or len(entry['accounts'])!=1:
+        if set(data) != {'qr'} or len(entry['accounts'])!=1 or entry.get('picker'):
             raise ValueError()
         activity_id, _ = qr_parameters(data['qr'])
         # Bound on the server: no IDs, owners, sources or proof IDs from callers.
@@ -254,48 +302,56 @@ def install_scan_routes(app, links):
     def start_stream():
         record = entry()
         options = payload()
-        if set(options)-{'input'} or options.get('input','jpeg') not in ('jpeg','native'):
+        fields = {'input', 'account_ids'} if record.get('picker') else {'input'}
+        if set(options)-fields or options.get('input','jpeg') not in ('jpeg','native'):
             raise ValueError()
         links.status(record)
         with record['lock']:
             streams = app.extensions['camera_streams']
             if record.get('stream_id'):
-                return jsonify(streams.get(('scan',id(record)),record['stream_id']).snapshot(private=True))
+                run = streams.get(('scan',id(record)),record['stream_id'])
+                if options.get('input',run.input_mode) != run.input_mode:
+                    raise ValueError()
+                if record.get('picker') and options.get('account_ids') != [a['alias'] for a in record['accounts']]:
+                    raise ValueError()
+                return jsonify(links.snapshot(record, run))
             def finished(summary):
                 with links.lock:
                     if record['active']:
                         record['stream_done'] = True
                         record['active'] = False
             prefs = links.store.preferences(links.camera.signing.preference_owner)
-            selected = [dict(id=a['id'],owner=a['owner'],name='当前用户') for a in record['accounts']]
+            accounts = links.select_users(record, options.get('account_ids')) if record.get('picker') else record['accounts']
+            selected = [dict(id=a['id'],owner=a['owner'],name='当前用户') for a in accounts]
             run = streams.start(('scan',id(record)),selected,concurrency=prefs['camera_concurrency'],
                                 expires=record['expires'],allowed=record['allowed'],authority=lambda:links._alive(record),finished=finished,
                                 interval=prefs['camera_scan_interval'],
                                 input_mode=options.get('input','jpeg'))
+            record['accounts'] = accounts
             record['stream_id'] = run.id
             record['stream_result_access'] = True
-            return jsonify(run.snapshot(private=True))
+            return jsonify(links.snapshot(record, run))
 
     @page.get('/scan-api/status')
     def stream_status():
         record = entry(allow_result=True)
         if not record.get('stream_id'):
             return jsonify(state='ready',terminal=False,message='点击开始扫描')
-        return jsonify(app.extensions['camera_streams'].get(('scan',id(record)),record['stream_id']).snapshot(private=True))
+        return jsonify(links.snapshot(record, app.extensions['camera_streams'].get(('scan',id(record)),record['stream_id'])))
 
     @page.post('/scan-api/frame')
     def upload_frame():
         record = entry()
         run = app.extensions['camera_streams'].get(('scan',id(record)),record.get('stream_id'))
         run.upload(request.get_data(cache=False))
-        return jsonify(run.snapshot(private=True)), 202
+        return jsonify(links.snapshot(record, run)), 202
 
     @page.post('/scan-api/qr')
     def native_qr():
         record = entry()
         run = app.extensions['camera_streams'].get(('scan',id(record)),record.get('stream_id'))
         run.native(payload())
-        return jsonify(run.snapshot(private=True)), 202
+        return jsonify(links.snapshot(record, run)), 202
 
     @page.post('/scan-api/close')
     def close():

@@ -42,7 +42,7 @@ function openPresetEditor(si,pi) {
   $('#school-suggestions',fields)?.remove();
   const panel=document.createElement('section'); panel.className='preset-editor-map';
   panel.setAttribute('aria-label','可视化选点');
-  panel.innerHTML=mapSearchHTML('preset')+`<div class="sign-map-controls">${button('使用地图中心','preset-map-center','secondary small')}${button('按已填坐标定位','preset-map-input','secondary small')}</div><div id="preset-map-canvas" class="sign-map-canvas" role="region" aria-label="预设点位选点地图"></div><p id="preset-map-status" class="sign-map-message" role="status">搜索学校 / 地点后，拖动地图或标记精调；地图停止拖动时读取中心坐标。</p><p class="setting-note">底图由当前所选地图服务提供，署名保留在图内。6 位小数为保存精度，不代表实地分米精度。这里仅保存点位，不发起签到。</p>`;
+  panel.innerHTML=mapSearchHTML('preset')+`<div class="sign-map-controls">${button('使用地图中心','preset-map-center','secondary small')}${button('按已填坐标定位','preset-map-input','secondary small')}<button type="button" class="button secondary small" data-map-address="preset">获取位置说明</button></div><div id="preset-map-canvas" class="sign-map-canvas" role="region" aria-label="预设点位选点地图"></div><p id="preset-map-status" class="sign-map-message" role="status">搜索学校 / 地点后，拖动地图或标记精调；地图停止拖动时读取中心坐标。</p><p class="setting-note">底图由当前所选地图服务提供，署名保留在图内。6 位小数为保存精度，不代表实地分米精度。这里仅保存点位，不发起签到。</p>`;
   body.prepend(panel);
   $('.setting-note',fields).textContent='搜索只作粗定位；可拖动地图或标记精调。已选地图点会随坐标系切换转换，手填数值不静默转换。';
   try {
@@ -58,15 +58,15 @@ function fillPresetMap(point) {
   state.presetMapPoint=point;
   const value=SignMap.formatted(point,$('#edit-point-system').value);
   $('#edit-point-lng').value=value.longitude; $('#edit-point-lat').value=value.latitude;
-  const address=$('#edit-point-address');
-  if(!address.value || address.value===state.presetMapAddress) { state.presetMapAddress=`地图选点（${value.longitude}, ${value.latitude}）`; address.value=state.presetMapAddress; }
   presetMapStatus(`已选：经度 ${value.longitude}，纬度 ${value.latitude}。填写学校与点位名称后保存。`);
+  MapAddressLookup.queue('preset',point);
 }
 function centerPresetMap() {
   try { state.presetMap?.center(SignMap.toWGS84(SignMap.point($('#edit-point-lng').value,$('#edit-point-lat').value),$('#edit-point-system').value)); }
   catch(error) { presetMapStatus(error.message,true); }
 }
 function closePresetMap() {
+  MapAddressLookup.cancel('preset');
   stopMapSearch('preset'); state.presetMap?.destroy(); state.presetMap=null; state.presetMapPoint=null;
   $('#modal').classList.remove('preset-map-expanded');
 }
