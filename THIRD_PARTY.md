@@ -63,6 +63,8 @@
 
 ## 摄像头连续扫码交互参考（2026-10-27）
 
+v0.10.0 默认连续扫码改为服务器处理：`server/qr_frames.py` 使用已安装的 zxing-cpp Python 绑定（Apache-2.0）读取 JPEG 和二维码角点，Pillow 读取图片。`server/camera_streams.py`、`web/server-camera.js` 和采集/描框工具 `web/qr-vision.js` 为本项目实现；继续参考随地大小签的检测位置描框及连续扫描交互，没有复制 Google ML Kit、CameraX 或 Android 识别库。手动相册图片等原有前端能力保留原 jsQR 许可。
+
 - 参考项目：[aquamarine5/ChaoxingSignFaker](https://github.com/aquamarine5/ChaoxingSignFaker)，查阅版本 `0346adf72dde1d3fea5600232c575ad2211641c3`，原项目按 AGPL-3.0 发布。参考范围为摄像头连续识别、多账户处理交互以及 URL / `SIGNIN:` 二维码字段约定，感谢作者与贡献者。
 - 网页实现 `web/camera-sign.js`、队列 `web/camera-queue.js` 和请求适配 `server/camera_sign.py` 独立编写；沿用已有 jsQR 发行文件及其 Apache-2.0 声明，没有复制原项目的 Kotlin、Android 组件、图片资源或签到实现，不随项目捆绑该 APK。
 - 浏览器摄像头采用标准 [MediaDevices.getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)，只请求视频；画面在浏览器 Worker 内处理，不上传第三方。

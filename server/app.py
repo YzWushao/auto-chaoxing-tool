@@ -26,6 +26,8 @@ from .tasks import ACTIVE, TaskManager
 from .signing import SignService
 from .preferences import account_label, validate_preferences
 from .camera_sign import CameraSignService, CameraRateLimit
+from .qr_frames import FrameDetector, FrameBusy, MAX_FRAME_BYTES
+from .camera_streams import CameraStreams
 from .scan_links import ScanLinks, install_scan_routes
 from .napcat import NapCatManager, public_settings as public_napcat_settings, validate_settings as validate_napcat_settings, test_connection as test_napcat_connection
 
@@ -66,7 +68,10 @@ def create_app(config=None, client_factory=ChaoxingClient):
                 return jsonify(error="请求来源不匹配"), 403
             if not hmac.compare_digest(request.headers.get("X-CSRF-Token", ""), session["csrf"]):
                 return jsonify(error="页面会话已更新，请刷新页面"), 403
-            if not request.is_json:
+            frame_request = bool(re.fullmatch(r'/api/camera-stream/[A-Za-z0-9_-]{32}/frame', request.path)) and request.method == 'POST'
+            if frame_request and (request.mimetype != 'image/jpeg' or (request.content_length or 0) > MAX_FRAME_BYTES):
+                return jsonify(error='视频帧需为 768 KB 以内的 JPEG'), 400
+            if not frame_request and not request.is_json:
                 return jsonify(error="请求需要 JSON 格式"), 415
         g.admin = store.admin_session(session.get("admin_sid"))
         g.owners = store.managed_owners(g.admin["id"]) if g.admin else []
@@ -179,7 +184,11 @@ def create_app(config=None, client_factory=ChaoxingClient):
             raise
 
     signing = SignService(store, use_client, account_locks)
+    frames = FrameDetector()
+    app.extensions['qr_frames'] = frames
     camera_sign = CameraSignService(signing)
+    streams = CameraStreams(camera_sign, frames)
+    app.extensions['camera_streams'] = streams
     napcat = NapCatManager(store, signing)
     scan_links = ScanLinks(store, camera_sign, napcat.settings)
     napcat.scan_links = scan_links
@@ -330,6 +339,48 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.get('/api/devices')
     def devices():
         return jsonify(device_payload())
+
+    def stream_identity():
+        return ('admin', g.admin['id'], session['browser_id'])
+
+    @app.post('/api/camera-stream')
+    def camera_stream_start():
+        data = body()
+        ids = data.get('account_ids')
+        if (set(data)-{'account_ids','location'} or not isinstance(ids,list) or not 1 <= len(ids) <= 200
+                or any(not isinstance(a,str) for a in ids)):
+            raise ValueError('请选择本次扫码需要处理的用户')
+        values = [account(a) for a in dict.fromkeys(ids)]
+        location = data.get('location')
+        if location is not None:
+            if not isinstance(location,dict) or set(location)!={'school','name'} or not all(isinstance(v,str) for v in location.values()):
+                raise ValueError('预设点位格式无效')
+            if not any(s['school']==location['school'] and any(p['name']==location['name'] for p in s['points'])
+                       for s in store.location_presets(g.admin['owner'])):
+                raise ValueError('预设点位已移除，请重新选择')
+        prefs = store.preferences(g.admin['owner'])
+        admin_sid = session['admin_sid']
+        def authority():
+            if not store.admin_session(admin_sid):
+                raise ValueError('管理员会话已失效')
+        selected = [dict(id=a['id'],owner=a['owner'],name=account_label(a,prefs['account_label'])) for a in values]
+        run = streams.start(stream_identity(),selected,prefs['camera_concurrency'],location=location,authority=authority,
+                            interval=prefs['camera_scan_interval'])
+        return jsonify(run.snapshot())
+
+    @app.get('/api/camera-stream/<run_id>')
+    def camera_stream_status(run_id):
+        return jsonify(streams.get(stream_identity(),run_id).snapshot())
+
+    @app.post('/api/camera-stream/<run_id>/frame')
+    def camera_stream_frame(run_id):
+        return jsonify(streams.get(stream_identity(),run_id).upload(request.get_data(cache=False))), 202
+
+    @app.post('/api/camera-stream/<run_id>/stop')
+    def camera_stream_stop(run_id):
+        run = streams.get(stream_identity(),run_id)
+        run.finish('stopped','已停止服务器扫码；已发出的签到请求仍会返回结果')
+        return jsonify(run.snapshot())
 
     @app.put('/api/devices/global')
     def device_global():

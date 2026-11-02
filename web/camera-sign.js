@@ -37,7 +37,7 @@ function activateCameraAttention(){
 }
 
 function cameraSignEntry(){
-  return `<section class="notice purple"><b>连续扫码签到</b><p>选择用户，使用本设备摄像头持续识别二维码，按设置的并发数提交，并分别显示每位用户的结果。</p><a class="button secondary small" href="#sign-camera">进入摄像头扫码签到 →</a></section>`;
+  return `<section class="notice purple"><b>连续扫码签到</b><p>选择用户后上传连续 JPEG，二维码识别、用户队列和签到都由服务器处理，手机只负责控制和查看结果。</p><a class="button secondary small" href="#sign-camera">进入摄像头扫码签到 →</a></section>`;
 }
 
 function cameraSignPage(){

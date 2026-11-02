@@ -51,6 +51,7 @@ def app(tmp_path):
     FakeClient.sign_calls = 0
     application = create_app({"TESTING": True, "DATA_DIR": tmp_path}, FakeClient)
     yield application
+    application.extensions['camera_streams'].shutdown()
     application.extensions["tasks"].shutdown()
 
 

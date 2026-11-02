@@ -12,6 +12,7 @@ from werkzeug.exceptions import HTTPException
 from .camera_sign import CameraRateLimit, qr_parameters
 from .chaoxing import CaptchaRequired, PlatformError, SessionExpired, SignRequirement
 from .config import ROOT
+from .qr_frames import FrameBusy, MAX_FRAME_BYTES
 
 
 class ScanLinkExpired(Exception):
@@ -52,7 +53,8 @@ class ScanLinks:
         now = time.monotonic()
         for records in (self.tickets, self.sessions):
             for key, entry in list(records.items()):
-                if not entry['active'] or entry['expires'] <= now:
+                result_window = records is self.sessions and entry.get('stream_result_access') and entry['expires']+60 > now
+                if not result_window and (not entry['active'] or entry['expires'] <= now):
                     records.pop(key, None)
 
     def revoke(self, qq):
@@ -60,6 +62,8 @@ class ScanLinks:
             for entry in (*self.tickets.values(), *self.sessions.values()):
                 if entry['qq'] == qq:
                     entry['active'] = False
+                    entry['stream_done'] = False
+                    entry['stream_result_access'] = False
             self._prune()
 
     def revoke_all(self):
@@ -107,13 +111,16 @@ class ScanLinks:
             self.sessions[digest(cookie)] = entry
             return cookie, csrf, entry
 
-    def authorize(self, cookie, csrf):
+    def authorize(self, cookie, csrf, allow_result=False):
         if not isinstance(cookie, str) or len(cookie) != 43 or not isinstance(csrf, str):
             raise ScanLinkExpired()
         with self.lock:
             self._prune()
             entry = self.sessions.get(digest(cookie))
-            self._alive(entry)
+            if allow_result and entry and entry.get('stream_result_access'):
+                self._alive({**entry, 'active':True, 'expires':entry['expires']+60})
+            else:
+                self._alive(entry)
             if not hmac.compare_digest(csrf, entry['csrf']):
                 raise ScanLinkExpired()
             return entry
@@ -157,7 +164,10 @@ def install_scan_routes(app, links):
         if (request.headers.get('X-Scan-Request') != '1' or
                 (request.method == 'POST' and request.headers.get('Origin') != origin)):
             return jsonify(error='扫码请求来源无效'), 403
-        if request.method == 'POST' and (not request.is_json or (request.content_length or 0) > 8192):
+        if request.path == '/scan-api/frame' and request.method == 'POST':
+            if request.mimetype != 'image/jpeg' or (request.content_length or 0) > MAX_FRAME_BYTES:
+                return jsonify(error='视频帧需为 768 KB 以内的 JPEG'), 400
+        elif request.method == 'POST' and (not request.is_json or (request.content_length or 0) > 8192):
             return jsonify(error='扫码请求格式无效'), 400
 
     @page.after_request
@@ -202,8 +212,8 @@ def install_scan_routes(app, links):
             raise ValueError()
         return data
 
-    def entry():
-        return links.authorize(request.cookies.get(cookie_name), request.headers.get('X-Scan-CSRF'))
+    def entry(allow_result=False):
+        return links.authorize(request.cookies.get(cookie_name), request.headers.get('X-Scan-CSRF'), allow_result)
 
     @page.get('/scan')
     def index():
@@ -216,7 +226,7 @@ def install_scan_routes(app, links):
             raise ValueError()
         cookie, csrf, record = links.claim(data['token'])
         response = jsonify(csrf=csrf, **links.status(record))
-        response.set_cookie(cookie_name, cookie, max_age=links.ttl, httponly=True,
+        response.set_cookie(cookie_name, cookie, max_age=links.ttl+60, httponly=True,
                             secure=app.config['SESSION_COOKIE_SECURE'], samesite='Strict', path='/scan-api')
         return response
 
@@ -228,12 +238,51 @@ def install_scan_routes(app, links):
     def submit():
         return jsonify(links.submit(entry(), payload()))
 
+    @page.post('/scan-api/start')
+    def start_stream():
+        record = entry()
+        if payload() != {}:
+            raise ValueError()
+        links.status(record)
+        with record['lock']:
+            streams = app.extensions['camera_streams']
+            if record.get('stream_id'):
+                return jsonify(streams.get(('scan',id(record)),record['stream_id']).snapshot(private=True))
+            def finished(summary):
+                with links.lock:
+                    if record['active']:
+                        record['stream_done'] = True
+                        record['active'] = False
+            run = streams.start(('scan',id(record)),[dict(id=record['account_id'],owner=record['owner'],name='当前用户')],
+                                expires=record['expires'],allowed=record['allowed'],authority=lambda:links._alive(record),finished=finished,
+                                interval=links.store.preferences(links.camera.signing.preference_owner)['camera_scan_interval'])
+            record['stream_id'] = run.id
+            record['stream_result_access'] = True
+            return jsonify(run.snapshot(private=True))
+
+    @page.get('/scan-api/status')
+    def stream_status():
+        record = entry(allow_result=True)
+        if not record.get('stream_id'):
+            return jsonify(state='ready',terminal=False,message='点击开始扫描')
+        return jsonify(app.extensions['camera_streams'].get(('scan',id(record)),record['stream_id']).snapshot(private=True))
+
+    @page.post('/scan-api/frame')
+    def upload_frame():
+        record = entry()
+        run = app.extensions['camera_streams'].get(('scan',id(record)),record.get('stream_id'))
+        run.upload(request.get_data(cache=False))
+        return jsonify(run.snapshot(private=True)), 202
+
     @page.post('/scan-api/close')
     def close():
         record = entry()
         record['active'] = False
+        if record.get('stream_id'):
+            app.extensions['camera_streams'].get(('scan',id(record)),record['stream_id']).finish('stopped','本次扫码已结束')
         response = jsonify(closed=True)
-        response.delete_cookie(cookie_name, path='/scan-api')
+        if not record.get('stream_id'):
+            response.delete_cookie(cookie_name, path='/scan-api')
         return response
 
     app.register_blueprint(page)

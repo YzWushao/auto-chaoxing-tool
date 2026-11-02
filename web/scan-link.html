@@ -6,20 +6,23 @@
   <meta name="referrer" content="no-referrer">
   <title>一次性扫码签到</title>
   <link rel="stylesheet" href="/static/scan-link.css?v=0.8.0">
-  <script src="/static/camera-queue.js?v=0.8.0" defer></script>
-  <script src="/static/scan-link.js?v=0.8.0" defer></script>
+  <link rel="stylesheet" href="/static/camera-sign.css?v=0.5.0">
+  <link rel="stylesheet" href="/static/qr-vision.css?v=0.10.0">
+  <script src="/static/qr-vision.js?v=0.10.0" defer></script>
+  <script src="/static/server-camera.js?v=0.10.0" defer></script>
 </head>
 <body>
   <main>
     <span class="eyebrow">AUTO CHAOXING · SCAN</span>
     <h1>一次性扫码签到</h1>
-    <p class="intro">将摄像头对准本次签到二维码，识别后自动提交。</p>
-    <section class="card">
+    <p class="intro">手机上传画面，服务器识别二维码并执行签到。</p>
+    <section class="card" id="server-camera-root" data-scan-capability>
       <div class="status-bar"><span class="badge">仅限本次扫码</span><span id="remaining">正在检查入口…</span></div>
-      <div class="preview"><video id="video" autoplay muted playsinline aria-label="摄像头预览"></video><div class="guide" aria-hidden="true"></div><span>将二维码放入画面</span></div>
-      <p id="status" role="status" aria-live="polite">正在领取本次扫码权限…</p>
-      <div class="actions"><button id="start" disabled>开启摄像头</button><button id="close" class="secondary" disabled>结束并关闭入口</button></div>
-      <p class="note">免控制台登录。首次使用需允许浏览器访问摄像头；画面仅在本设备识别。入口最多保留 5 分钟，完成一个活动、主动结束或离开页面后失效。</p>
+      <div class="camera-preview server-camera-preview"><video id="server-camera-video" autoplay muted playsinline aria-label="摄像头预览"></video><svg id="server-camera-outline" class="qr-outline" preserveAspectRatio="xMidYMid meet" role="img" aria-label="服务器识别到的二维码位置" hidden><polygon vector-effect="non-scaling-stroke"></polygon></svg><p>点击开始扫描，将二维码放入画面。</p></div>
+      <p id="server-camera-status" role="status" aria-live="polite">正在领取本次扫码权限…</p>
+      <div class="actions"><button id="server-camera-start" disabled>开始扫描</button><button id="server-camera-stop" class="secondary" disabled>停止扫描</button><button id="server-camera-result" class="secondary">查看结果</button></div>
+      <p id="server-camera-counter" class="note"></p><ol id="server-camera-results" class="camera-queue" aria-label="服务器签到结果"></ol>
+      <p class="note">免控制台登录。开始后，连续 JPEG 画面发往本项目服务器，在内存识别，不录像、不保存图片；二维码参数和签到操作留在服务器。入口最多 5 分钟有效，完成或主动结束后失效。</p>
       <p class="note">如 QQ 内无法开启摄像头，请先将原始消息中的链接复制到系统浏览器再打开。平台要求的额外验证仍需完成。</p>
     </section>
     <footer><a href="/legal/license">AGPL-3.0</a> · <a href="https://github.com/YzWushao/auto-chaoxing-tool" rel="noreferrer">源代码</a></footer>

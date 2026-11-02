@@ -46,6 +46,7 @@ function button(label, action, cls='secondary', symbol='', extra='') { return `<
 function showLogin() {
   closeSignFace();
   closeSignCamera('控制台会话已结束，摄像头已关闭。');
+  stopServerCamera('',true);
   $('#loading').classList.add('hidden'); $('#app-screen').classList.add('hidden'); $('#login-screen').classList.remove('hidden');
   closeAccountLogin();
   if($('#modal').open) $('#modal').close();
@@ -122,6 +123,7 @@ async function bootstrap() {
 function resetConsole() {
   closeSignFace();
   closeSignCamera('控制台会话已结束，摄像头已关闭。');
+  stopServerCamera('',true);
   state.authenticated=false; state.admin=null; closeAccountLogin();
   state.accounts=[]; state.jobs=[]; state.events=[]; state.location_presets=[]; state.map_settings=null; state.napcat_settings=null; state.napcat_status=null; state.active=''; state.selection={}; state.courses={}; state.activities={}; state.logJob=null; state.logAfter=0;
   $('#page-content').replaceChildren();
@@ -152,11 +154,12 @@ function render() {
   $('#breadcrumb-title').textContent=titles[state.page];
   $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === (state.page==='study-config'?'study':['presets','devices'].includes(state.page)?'settings':['sign-group','sign-camera'].includes(state.page)?'sign':state.page)));
   if(state.page!=='sign-camera')closeSignCamera('已离开扫码页面，摄像头已关闭。');
-  if(state.page==='sign-camera'&&$('#camera-sign-root')){renderCameraStatus();return;}
-  const renderers = {overview:overviewPage,study:studyPage,'study-config':configPage,sign:signPage,'sign-group':signPage,'sign-camera':cameraSignPage,accounts:accountsPage,settings:settingsPage,presets:presetsPage,devices:deviceBindingsPage};
+  if(state.page!=='sign-camera')stopServerCamera('',true);
+  if(state.page==='sign-camera'&&$('#server-camera-root')){renderServerCameraState();return;}
+  const renderers = {overview:overviewPage,study:studyPage,'study-config':configPage,sign:signPage,'sign-group':signPage,'sign-camera':serverCameraPage,accounts:accountsPage,settings:settingsPage,presets:presetsPage,devices:deviceBindingsPage};
   $('#page-content').innerHTML = (state.admin?.default_password?'<div class="notice">管理员仍使用默认密码，请到 <a href="#settings">设置 → 管理员账号与密码</a> 修改后再开放远程访问。</div>':'')+renderers[state.page]();
   if (state.page==='study' && state.logJob) { state.logAfter=0; loadLogs(); }
-  if(state.page==='sign-camera')renderCameraStatus();
+  if(state.page==='sign-camera')renderServerCameraState();
   if(state.page==='devices')void loadDeviceBindings();
 }
 
