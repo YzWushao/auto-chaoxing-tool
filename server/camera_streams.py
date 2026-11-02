@@ -1,4 +1,4 @@
-"""Server-owned QR recognition and signing. Phone uploads JPEG, never QR data."""
+"""Server-owned signing queues fed by JPEG or explicitly selected native QR input."""
 import secrets
 import threading
 import time
@@ -13,7 +13,7 @@ TERMINAL = {'completed', 'stopped', 'expired', 'attention', 'error'}
 
 
 class CameraRun:
-    def __init__(self, manager, identity, accounts, concurrency, expires, allowed=None, location=None, authority=None, finished=None, interval=.1):
+    def __init__(self, manager, identity, accounts, concurrency, expires, allowed=None, location=None, authority=None, finished=None, interval=.1, input_mode='jpeg'):
         self.manager, self.identity, self.expires = manager, identity, expires
         self.id = secrets.token_urlsafe(24)
         self.lock = threading.RLock()
@@ -23,7 +23,11 @@ class CameraRun:
             failures=0,pass_failures=0,next_retry=0,message='等待扫码') for a in accounts}
         self.order = list(self.entries)
         self.concurrency = concurrency
-        self.frame_interval = max(.2, interval)
+        if input_mode not in {'jpeg','native'}:
+            raise ValueError('扫码输入方式无效')
+        self.input_mode = input_mode
+        self.frame_interval = max(.1 if input_mode=='native' else .2, interval)
+        self.native_at = 0
         self.allowed, self.location, self.authority, self.finished = allowed, location, authority, finished
         self.pending = self.qr = self.box = None
         self.activity_id = ''
@@ -51,7 +55,7 @@ class CameraRun:
             if private:
                 items = [{**a,'id':str(index),'name':'当前用户'} for index,a in enumerate(items)]
             return {'id':self.id,'state':self.state,'terminal':self.state in TERMINAL,'message':self.message,
-                    'frame_interval':self.frame_interval,
+                    'frame_interval':self.frame_interval,'input':self.input_mode,
                     'remaining_seconds':max(0,self.expires-time.monotonic()),'frames':self.frame_count,
                     'decoded_frames':self.decoded_count,'accounts':items,'detection':self.box}
 
@@ -60,12 +64,42 @@ class CameraRun:
         if not 0 < len(content) <= MAX_FRAME_BYTES:
             raise ValueError('视频帧需小于 768 KB')
         with self.lock:
+            if self.input_mode != 'jpeg':
+                raise ValueError('本次会话使用原生扫码')
             if self.state in TERMINAL:
                 return self.snapshot()
             self.frame_at = time.monotonic()
             # Drop the older queued frame; never build a video backlog.
             self.pending = (content,self.frame_at)
             self.frame_count += 1
+        self.wake.set()
+        return self.snapshot()
+
+    def native(self, data):
+        if not isinstance(data,dict) or set(data)!={'qr'} or not isinstance(data['qr'],str) or len(data['qr'])>4096:
+            raise ValueError('原生扫码数据无效')
+        raw = data['qr']
+        parsed = qr_parameters(raw) if raw else None
+        with self.lock:
+            if self.input_mode != 'native':
+                raise ValueError('本次会话使用服务器图像识别')
+            if self.state in TERMINAL:
+                return self.snapshot()
+            if parsed and ((self.allowed is not None and parsed[0] not in self.allowed) or self.activity_id not in {'',parsed[0]}):
+                raise ValueError('请对准本次所选活动的签到二维码')
+            now = time.monotonic()
+            if now-self.native_at < min(self.frame_interval,.5)*.8:
+                raise CameraRateLimit('正在等待下一次识别')
+            self.native_at = self.frame_at = now
+            self.frame_count += 1
+            self.box = self.qr = None
+            if parsed:
+                self.activity_id = parsed[0]
+                self.qr = (raw,now)
+                self.decoded_count += 1
+                self.message = '安卓已识别二维码，服务器正在处理签到'
+            elif not self.inflight:
+                self.message = '等待安卓识别签到二维码'
         self.wake.set()
         return self.snapshot()
 

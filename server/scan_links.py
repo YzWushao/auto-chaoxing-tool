@@ -241,7 +241,8 @@ def install_scan_routes(app, links):
     @page.post('/scan-api/start')
     def start_stream():
         record = entry()
-        if payload() != {}:
+        options = payload()
+        if set(options)-{'input'} or options.get('input','jpeg') not in ('jpeg','native'):
             raise ValueError()
         links.status(record)
         with record['lock']:
@@ -255,7 +256,8 @@ def install_scan_routes(app, links):
                         record['active'] = False
             run = streams.start(('scan',id(record)),[dict(id=record['account_id'],owner=record['owner'],name='当前用户')],
                                 expires=record['expires'],allowed=record['allowed'],authority=lambda:links._alive(record),finished=finished,
-                                interval=links.store.preferences(links.camera.signing.preference_owner)['camera_scan_interval'])
+                                interval=links.store.preferences(links.camera.signing.preference_owner)['camera_scan_interval'],
+                                input_mode=options.get('input','jpeg'))
             record['stream_id'] = run.id
             record['stream_result_access'] = True
             return jsonify(run.snapshot(private=True))
@@ -272,6 +274,13 @@ def install_scan_routes(app, links):
         record = entry()
         run = app.extensions['camera_streams'].get(('scan',id(record)),record.get('stream_id'))
         run.upload(request.get_data(cache=False))
+        return jsonify(run.snapshot(private=True)), 202
+
+    @page.post('/scan-api/qr')
+    def native_qr():
+        record = entry()
+        run = app.extensions['camera_streams'].get(('scan',id(record)),record.get('stream_id'))
+        run.native(payload())
         return jsonify(run.snapshot(private=True)), 202
 
     @page.post('/scan-api/close')

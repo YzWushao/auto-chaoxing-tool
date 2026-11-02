@@ -1,0 +1,9 @@
+.android-native .sidebar { display:none!important; }
+.android-native .main-shell { margin-left:0!important; }
+.android-native .content { padding:20px 16px 10px; }
+.android-native .topbar { padding:0 16px; }
+.android-native .server-camera-preview { display:none; }
+.android-native .camera-layout { grid-template-columns:1fr; }
+.android-native .camera-layout .panel { margin-bottom:14px; }
+.android-native .camera-choice-list { max-height:180px; overflow:auto; }
+.android-native .app-footer { flex-wrap:wrap; padding:14px 16px; }

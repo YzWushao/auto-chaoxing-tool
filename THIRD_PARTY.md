@@ -63,6 +63,8 @@
 
 ## 摄像头连续扫码交互参考（2026-10-27）
 
+v0.11.0 新增 `android/` 原生客户端，参考上述固定版本的 CameraX + ML Kit 连续扫码及边框交互，以 Java 重新实现。通过 Maven 引入 AndroidX（Apache-2.0）和 Google ML Kit 捆绑扫码 SDK（依官方发行条款）；没有复制上游 Kotlin 组件或应用资源。本项目新增客户端源码按 AGPL-3.0 发布。Maven 构建使用官方 Android SDK 的 AAPT2 / D8 / zipalign / apksigner，以及官方 Manifest Merger；构建工具不打包进应用。依赖自带通知随 APK 保留，完整依赖版本见 `android/pom.xml` 与 Maven 解析结果。
+
 v0.10.0 默认连续扫码改为服务器处理：`server/qr_frames.py` 使用已安装的 zxing-cpp Python 绑定（Apache-2.0）读取 JPEG 和二维码角点，Pillow 读取图片。`server/camera_streams.py`、`web/server-camera.js` 和采集/描框工具 `web/qr-vision.js` 为本项目实现；继续参考随地大小签的检测位置描框及连续扫描交互，没有复制 Google ML Kit、CameraX 或 Android 识别库。手动相册图片等原有前端能力保留原 jsQR 许可。
 
 - 参考项目：[aquamarine5/ChaoxingSignFaker](https://github.com/aquamarine5/ChaoxingSignFaker)，查阅版本 `0346adf72dde1d3fea5600232c575ad2211641c3`，原项目按 AGPL-3.0 发布。参考范围为摄像头连续识别、多账户处理交互以及 URL / `SIGNIN:` 二维码字段约定，感谢作者与贡献者。

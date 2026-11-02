@@ -347,7 +347,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def camera_stream_start():
         data = body()
         ids = data.get('account_ids')
-        if (set(data)-{'account_ids','location'} or not isinstance(ids,list) or not 1 <= len(ids) <= 200
+        if (set(data)-{'account_ids','location','input'} or data.get('input','jpeg') not in ('jpeg','native') or not isinstance(ids,list) or not 1 <= len(ids) <= 200
                 or any(not isinstance(a,str) for a in ids)):
             raise ValueError('请选择本次扫码需要处理的用户')
         values = [account(a) for a in dict.fromkeys(ids)]
@@ -365,7 +365,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
                 raise ValueError('管理员会话已失效')
         selected = [dict(id=a['id'],owner=a['owner'],name=account_label(a,prefs['account_label'])) for a in values]
         run = streams.start(stream_identity(),selected,prefs['camera_concurrency'],location=location,authority=authority,
-                            interval=prefs['camera_scan_interval'])
+                            interval=prefs['camera_scan_interval'],input_mode=data.get('input','jpeg'))
         return jsonify(run.snapshot())
 
     @app.get('/api/camera-stream/<run_id>')
@@ -375,6 +375,15 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.post('/api/camera-stream/<run_id>/frame')
     def camera_stream_frame(run_id):
         return jsonify(streams.get(stream_identity(),run_id).upload(request.get_data(cache=False))), 202
+
+    @app.post('/api/camera-stream/<run_id>/qr')
+    def camera_stream_native(run_id):
+        if (request.content_length or 0) > 8192:
+            raise ValueError('原生扫码数据过大')
+        try:
+            return jsonify(streams.get(stream_identity(),run_id).native(body())), 202
+        except CameraRateLimit as error:
+            return jsonify(error=str(error)), 429
 
     @app.post('/api/camera-stream/<run_id>/stop')
     def camera_stream_stop(run_id):
