@@ -30,6 +30,7 @@ from .qr_frames import FrameDetector, FrameBusy, MAX_FRAME_BYTES
 from .camera_streams import CameraStreams
 from .scan_links import ScanLinks, install_scan_routes
 from .napcat import NapCatManager, public_settings as public_napcat_settings, validate_settings as validate_napcat_settings, test_connection as test_napcat_connection
+from .qq_intent import test_connection as test_intent_connection
 
 
 def create_app(config=None, client_factory=ChaoxingClient):
@@ -436,6 +437,12 @@ def create_app(config=None, client_factory=ChaoxingClient):
         if not value['ws_url'] or not value['token']:
             raise ValueError('请先填写 NapCat 地址和 Token')
         return jsonify(test_napcat_connection(value))
+
+    @app.post('/api/napcat/intent/test')
+    def napcat_intent_test():
+        limit_login()
+        value = validate_napcat_settings(body(), store.napcat_settings(g.admin['owner']))
+        return jsonify(test_intent_connection(value))
 
     @app.get('/api/map/settings')
     def map_settings():

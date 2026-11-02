@@ -21,8 +21,9 @@ from .preferences import account_label
 from .qq_batch import ALL_SELECTIONS, BatchConversation, selection
 from .sign_images import qq_picture, ImageReadError, ImageStream
 from .scan_links import validate_scan_base_url
+from . import qq_intent
 
-DEFAULT = {'enabled': False, 'ws_url': '', 'token': '', 'allowed_qqs': [], 'scan_base_url': ''}
+DEFAULT = {'enabled': False, 'ws_url': '', 'token': '', 'allowed_qqs': [], 'scan_base_url': '', **qq_intent.DEFAULT}
 KINDS = {'normal': '普通', 'qr': '二维码', 'location': '位置', 'gesture': '手势（请用网页）', 'code': '签到码（请用网页）'}
 
 
@@ -56,13 +57,15 @@ def validate_settings(data, current):
         raise ValueError('授权 QQ 需为有效 QQ 号列表，最多 100 个')
     value['allowed_qqs'] = list(dict.fromkeys(qqs))
     value['scan_base_url'] = validate_scan_base_url(value['scan_base_url'])
+    qq_intent.validate(value, current)
     if value['enabled'] and not (value['ws_url'] and token and qqs):
         raise ValueError('启用前请填写地址、Token 和至少一个授权 QQ')
     return value
 
 
 def public_settings(value):
-    return {**value, 'token': MASK if value.get('token') else ''}
+    return {**DEFAULT, **value, 'token': MASK if value.get('token') else '',
+            'intent_api_key': MASK if value.get('intent_api_key') else ''}
 
 
 def open_connection(value):
@@ -210,6 +213,38 @@ class SignConversation(BatchConversation):
             self.revoke_scan(qq)
             self.sessions.pop(qq, None)
             state = None
+        pending_all = state.pop('_intent_all', False) if state else False
+        if text == '确认全选' and pending_all and not images:
+            text = '全选'
+        elif text == '确认全选' and not images:
+            self.send(qq, '当前没有待确认的全选操作，请重新选择。')
+            return
+        elif (config.get('intent_enabled') and text and not images
+              and text not in {'签到', '签退', '取消', '下一页', '上一页', '跳过', '继续'} | ALL_SELECTIONS
+              and not re.fullmatch(r'[0-9\s,，、;；~～至-]+', text)):
+            if re.search(r'https?://|SIGNIN:|enc\s*=|\[CQ:', text, re.I):
+                self.send(qq, '二维码请直接发送图片；文字操作请使用列表序号或标准指令。')
+                return
+            try:
+                command = qq_intent.interpret(config, text, qq_intent.context(state, config))
+            except ValueError as error:
+                self.send(qq, str(error))
+                return
+            current = self.settings()
+            if (not current.get('enabled') or not current.get('intent_enabled')
+                    or qq not in current.get('allowed_qqs', []) or self.sessions.get(qq) is not state
+                    or any(current.get(k) != config.get(k) for k in qq_intent.DEFAULT)
+                    or (state and time.monotonic()-state['touched'] > 300)):
+                return
+            if command is None:
+                self.send(qq, '未能确定你的意思。请回复列表序号（可多选）、“全选”“签到”或“取消”。')
+                return
+            if command == '全选':
+                state['_intent_all'] = True
+                stage = {'account': '用户', 'activity': '活动'}[state['phase']]
+                self.send(qq, f"理解为选择全部 {len(state['choices'])} 个{stage}（包含所有分页）。回复“确认全选”执行，或重新选择序号。")
+                return
+            text = command
         if text == '取消':
             self.revoke_scan(qq)
             self.sessions.pop(qq, None)
