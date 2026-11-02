@@ -20,6 +20,9 @@ def quote_arg(value):
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--maven',required=True);parser.add_argument('--repository',required=True)
     options=parser.parse_args()
+    pom=ET.parse(ROOT/'pom.xml').getroot();ns={'m':'http://maven.apache.org/POM/4.0.0'}
+    version=pom.findtext('m:version',namespaces=ns);version_code=pom.findtext('m:properties/m:android.versionCode',namespaces=ns)
+    if not version or not version_code or not version_code.isdigit():raise RuntimeError('Missing Android version in pom.xml')
     sdk=Path(os.environ['ANDROID_HOME']);jdk=Path(os.environ['JAVA_HOME']);tools=sdk/'build-tools'/'35.0.0'
     java=jdk/'bin'/'java.exe';javac=jdk/'bin'/'javac.exe';aapt=tools/'aapt2.exe';android=sdk/'platforms'/'android-35'/'android.jar'
     for path in (java,javac,aapt,android):
@@ -30,6 +33,10 @@ def main():
         if work.resolve().parent!=TARGET.resolve():raise RuntimeError('Invalid build directory')
         shutil.rmtree(work)
     work.mkdir();unpacked=work/'libraries';unpacked.mkdir()
+    policy_classes=work/'policy-tests';policy_classes.mkdir()
+    run(javac,'-encoding','UTF-8','-d',policy_classes,ROOT/'app/src/main/java/top/autochaoxing/mobile/AutoZoomPolicy.java',
+        ROOT/'tests/top/autochaoxing/mobile/AutoZoomPolicyTest.java')
+    run(java,'-cp',policy_classes,'top.autochaoxing.mobile.AutoZoomPolicyTest')
     tooling=TARGET/'manifest-tools';tooling.mkdir(exist_ok=True)
     run(options.maven,'-B','-f',ROOT/'tools'/'pom.xml','-Dmaven.repo.local='+options.repository,
         'org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies','-DoutputDirectory='+str(tooling))
@@ -64,7 +71,7 @@ def main():
     manifest=work/'AndroidManifest.xml';tool_cp=os.pathsep.join(str(p) for p in tooling.glob('*.jar'))
     merge_classes=work/'manifest-classes';merge_classes.mkdir()
     run(javac,'-encoding','UTF-8','-cp',tool_cp,'-d',merge_classes,ROOT/'tools'/'MergeManifest.java')
-    run(java,'-cp',str(merge_classes)+os.pathsep+tool_cp,'MergeManifest',ROOT/'app/src/main/AndroidManifest.xml',manifest,*manifests)
+    run(java,'-cp',str(merge_classes)+os.pathsep+tool_cp,'MergeManifest',ROOT/'app/src/main/AndroidManifest.xml',manifest,version_code,version,*manifests)
     generated=work/'generated';generated.mkdir()
     application=work/'app-res.zip';run(aapt,'compile','--dir',ROOT/'app/src/main/res','-o',application)
     resource_apk=work/'resources.ap_'
@@ -103,7 +110,7 @@ def main():
         output.write(ROOT.parent/'THIRD_PARTY.md','assets/THIRD_PARTY.md')
         output.write(ROOT.parent/'NOTICE.md','assets/NOTICE.md')
     aligned=work/'aligned.apk';run(tools/'zipalign.exe','-P','16','-f','4',unsigned,aligned)
-    output=TARGET/'auto-chaoxing-tool-0.11.0-release.apk'
+    output=TARGET/('auto-chaoxing-tool-'+version+'-release.apk')
     required=('AUTO_CHAOXING_ANDROID_KEYSTORE','AUTO_CHAOXING_ANDROID_STORE_PASSWORD','AUTO_CHAOXING_ANDROID_KEY_PASSWORD')
     if not all(os.environ.get(key) for key in required):raise RuntimeError('Release signing configuration is required')
     run(java,'-jar',tools/'lib/apksigner.jar','sign','--ks',os.environ[required[0]],'--ks-key-alias','auto-chaoxing',

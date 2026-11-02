@@ -13,9 +13,9 @@ public class MergeManifest {
             .setPlaceHolderValue("applicationId","top.autochaoxing.mobile")
             .setOverride(ManifestSystemProperty.UsesSdk.MIN_SDK_VERSION,"26")
             .setOverride(ManifestSystemProperty.UsesSdk.TARGET_SDK_VERSION,"35")
-            .setOverride(ManifestSystemProperty.Manifest.VERSION_CODE,"11")
-            .setOverride(ManifestSystemProperty.Manifest.VERSION_NAME,"0.11.0");
-        for(int i=2;i<args.length;i++)merger.addLibraryManifest(new File(args[i]));
+            .setOverride(ManifestSystemProperty.Manifest.VERSION_CODE,args[2])
+            .setOverride(ManifestSystemProperty.Manifest.VERSION_NAME,args[3]);
+        for(int i=4;i<args.length;i++)merger.addLibraryManifest(new File(args[i]));
         var report=merger.merge();
         if(report.getResult()==MergingReport.Result.ERROR)throw new IllegalStateException(report.getReportString());
         Files.writeString(Path.of(args[1]),report.getMergedDocument(MergingReport.MergedManifestKind.MERGED));

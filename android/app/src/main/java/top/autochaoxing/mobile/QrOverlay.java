@@ -17,6 +17,10 @@ final class QrOverlay extends View {
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
     }
     void update(Rect rectangle) {
+        update(rectangle,true);
+    }
+    void update(Rect rectangle,boolean decoded) {
+        paint.setColor(decoded?0xFF42E8A4:0xFFFFCC55);
         bounds = rectangle == null ? null : new Rect(rectangle);
         invalidate();
     }

@@ -57,6 +57,7 @@ import androidx.webkit.WebViewFeature;
 import com.google.mlkit.vision.barcode.BarcodeScanner;
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions;
 import com.google.mlkit.vision.barcode.BarcodeScanning;
+import com.google.mlkit.vision.barcode.ZoomSuggestionOptions;
 import com.google.mlkit.vision.barcode.common.Barcode;
 
 import org.json.JSONException;
@@ -97,8 +98,10 @@ public final class MainActivity extends AppCompatActivity {
     private FrameLayout previewFrame;
     private PreviewView preview;
     private QrOverlay overlay;
+    private CameraControls cameraControls;
     private LifecycleCameraController controller;
     private BarcodeScanner scanner;
+    private int cameraGeneration;
     private String origin = "", scanId = "", latestQr = "";
     private long latestAt, interval = 100;
     private JavaScriptReplyProxy scanReply;
@@ -295,7 +298,7 @@ public final class MainActivity extends AppCompatActivity {
         cameraStatus=new TextView(this);cameraStatus.setText("对准签到二维码 · 可点击对焦、双指缩放");cameraStatus.setTextSize(11);cameraStatus.setPadding(dp(12),0,0,0);
         actions.addView(cameraStatus,new LinearLayout.LayoutParams(0,dp(44),1));
         Button stop=button("停止");actions.addView(stop);stop.setOnClickListener(v->closeScanner("扫描已停止",true));
-        cameraPanel.addView(actions);root.addView(cameraPanel);
+        cameraPanel.addView(actions);cameraControls=new CameraControls(this);cameraPanel.addView(cameraControls);root.addView(cameraPanel);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -416,7 +419,10 @@ public final class MainActivity extends AppCompatActivity {
         if (scanId.isEmpty()||!foreground) return;
         try {
             cameraPanel.setVisibility(View.VISIBLE);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            scanner=BarcodeScanning.getClient(new BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build());
+            int activeGeneration=++cameraGeneration;
+            scanner=BarcodeScanning.getClient(new BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .enableAllPotentialBarcodes().setZoomSuggestionOptions(new ZoomSuggestionOptions.Builder(
+                    ratio->activeGeneration==cameraGeneration&&cameraControls.suggestZoom(ratio)).build()).build());
             controller=new LifecycleCameraController(this);controller.setCameraSelector(CameraSelector.DEFAULT_BACK_CAMERA);
             controller.setEnabledUseCases(LifecycleCameraController.IMAGE_ANALYSIS);controller.setTapToFocusEnabled(true);controller.setPinchToZoomEnabled(true);
             controller.setImageAnalysisResolutionSelector(new ResolutionSelector.Builder().setResolutionStrategy(
@@ -426,14 +432,17 @@ public final class MainActivity extends AppCompatActivity {
                 ImageAnalysis.COORDINATE_SYSTEM_VIEW_REFERENCED,ContextCompat.getMainExecutor(this),result->{
                     if(!activeId.equals(scanId)||scanner!=activeScanner) return;
                     List<Barcode> codes=result.getValue(activeScanner);
-                    if(codes==null||codes.isEmpty()) {latestQr="";overlay.update(null);return;}
+                    if(codes==null||codes.isEmpty()) {latestQr="";overlay.update(null);cameraControls.detection(null,false);return;}
                     Barcode code=codes.get(0);
                     for(Barcode candidate:codes) if(isSignCode(candidate.getRawValue())) {code=candidate;break;}
-                    Rect box=code.getBoundingBox();overlay.update(box);
+                    Rect box=code.getBoundingBox();boolean decoded=code.getRawValue()!=null;
+                    overlay.update(box,decoded);cameraControls.detection(box,decoded);
                     String raw=code.getRawValue();latestQr=isSignCode(raw)&&raw.length()<=4096?raw:"";latestAt=SystemClock.elapsedRealtime();
-                    cameraStatus.setText(latestQr.isEmpty()?"已发现二维码，请对准签到二维码":"已识别 · 服务器正在处理，请保持画面");
+                    cameraStatus.setText(latestQr.isEmpty()?decoded?"已发现二维码，请对准签到二维码":
+                        cameraControls.isSmart()?"发现疑似二维码 · 智能取景中":"发现疑似二维码 · 可手动放大或调焦":"已识别 · 服务器正在处理，请保持画面");
                 }));
             preview.setController(controller);controller.bindToLifecycle(this);
+            cameraControls.attach(controller,preview,this);
             send("started","");handler.post(report);
         } catch(Exception e) { closeScanner("无法启动相机，请检查权限或摄像头占用",true); }
     }
@@ -449,9 +458,11 @@ public final class MainActivity extends AppCompatActivity {
         } catch(JSONException|IllegalStateException ignored) { }
     }
     private void closeScanner(String message,boolean notify) {
+        cameraGeneration++;
         if(notify)send("closed",message);
         handler.removeCallbacks(report);scanId="";scanReply=null;latestQr="";latestAt=0;
         resumeCamera=false;
+        if(cameraControls!=null)cameraControls.detach();
         if(controller!=null){controller.clearImageAnalysisAnalyzer();controller.unbind();controller=null;}
         if(scanner!=null){scanner.close();scanner=null;}
         if(overlay!=null)overlay.update(null);
@@ -473,7 +484,7 @@ public final class MainActivity extends AppCompatActivity {
         menu.getMenu().add("打开一次性扫码链接").setOnMenuItemClickListener(item->{openScanLink();return true;});
         menu.getMenu().add("退出控制台登录").setOnMenuItemClickListener(item->{
             closeScanner("已退出",true);if(trustedPage())web.evaluateJavascript("document.getElementById('logout')?.click();",null);return true;});
-        menu.getMenu().add("关于与源码").setOnMenuItemClickListener(item->{new AlertDialog.Builder(this).setTitle("超星工具 0.11.0")
+        menu.getMenu().add("关于与源码").setOnMenuItemClickListener(item->{new AlertDialog.Builder(this).setTitle("超星工具 0.11.1")
             .setMessage("安卓原生相机与 ML Kit 扫码，服务器统一执行任务。\nAGPL-3.0 · 扫码交互参考 ChaoxingSignFaker。")
             .setNegativeButton("关闭",null).setPositiveButton("源码",(d,w)->openExternal(Uri.parse("https://github.com/YzWushao/auto-chaoxing-tool"))).show();return true;});
         menu.show();

@@ -40,13 +40,14 @@ if (-not (Test-Path -LiteralPath $PythonExecutable)) { throw '找不到 Python�
     $env:AUTO_CHAOXING_ANDROID_KEY_PASSWORD=$private.password
 }.Invoke()
 try {
+    $appVersion=([xml](Get-Content -LiteralPath (Join-Path $PSScriptRoot 'pom.xml') -Raw)).project.version
     & $maven -B -f (Join-Path $PSScriptRoot 'pom.xml') "-Dmaven.repo.local=$ToolchainRoot/maven-repository" "-Dpython.executable=$PythonExecutable" clean package
     if ($LASTEXITCODE -ne 0) { throw 'Maven Android 构建未通过' }
-    $apk=Join-Path $PSScriptRoot 'target/auto-chaoxing-tool-0.11.0-release.apk'
+    $apk=Join-Path $PSScriptRoot "target/auto-chaoxing-tool-$appVersion-release.apk"
     if (-not (Test-Path -LiteralPath $apk)) { throw '没有找到 APK 构建产物' }
     $artifacts=Join-Path (Split-Path $PSScriptRoot -Parent) 'dist'
     New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
-    $output=Join-Path $artifacts 'auto-chaoxing-tool-0.11.0-release.apk'
+    $output=Join-Path $artifacts "auto-chaoxing-tool-$appVersion-release.apk"
     Copy-Item -LiteralPath $apk -Destination $output
     Write-Output "APK: $output"
     Get-FileHash -LiteralPath $output -Algorithm SHA256
