@@ -7,11 +7,11 @@
   <title>摄像头扫码签到</title>
   <link rel="stylesheet" href="/static/scan-link.css?v=0.13.0">
   <link rel="stylesheet" href="/static/camera-sign.css?v=0.5.0">
-  <link rel="stylesheet" href="/static/qr-vision.css?v=0.10.0">
+  <link rel="stylesheet" href="/static/qr-vision.css?v=0.13.1">
   <link rel="stylesheet" href="/static/android-client.css?v=0.11.0">
   <script src="/static/android-client.js?v=0.11.0" defer></script>
-  <script src="/static/qr-vision.js?v=0.10.0" defer></script>
-  <script src="/static/server-camera.js?v=0.13.0" defer></script>
+  <script src="/static/qr-vision.js?v=0.13.1" defer></script>
+  <script src="/static/server-camera.js?v=0.13.1" defer></script>
 </head>
 <body>
   <main>
@@ -27,7 +27,8 @@
         <p class="note">手动勾选本次用户，开始后不能更换。需要更换用户时，请结束本次扫描，回 QQ 回复“签到”获取新入口。平台要求的额外验证沿用现有流程。</p>
       </section>
       <section class="card">
-      <div class="camera-preview server-camera-preview"><video id="server-camera-video" autoplay muted playsinline aria-label="摄像头预览"></video><svg id="server-camera-outline" class="qr-outline" preserveAspectRatio="xMidYMid meet" role="img" aria-label="服务器识别到的二维码位置" hidden><polygon vector-effect="non-scaling-stroke"></polygon></svg><p>点击开始扫描，将二维码放入画面。</p></div>
+      <div class="camera-preview server-camera-preview"><video id="server-camera-video" autoplay muted playsinline aria-label="摄像头预览"></video><canvas id="server-camera-zoom-preview" class="camera-zoom-preview" aria-label="放大后的扫码画面" hidden></canvas><svg id="server-camera-outline" class="qr-outline" preserveAspectRatio="xMidYMid meet" role="img" aria-label="服务器识别到的二维码位置" hidden><polygon vector-effect="non-scaling-stroke"></polygon></svg><p>点击开始扫描，将二维码放入画面。</p></div>
+      <div class="server-camera-zoom"><div class="server-camera-zoom-heading"><label for="server-camera-zoom">放大倍数</label><output id="server-camera-zoom-value" for="server-camera-zoom">1.0×</output></div><input id="server-camera-zoom" type="range" min="1" max="5" step="0.1" value="1" aria-label="扫码画面放大倍数"><p id="server-camera-zoom-note" class="note">1×–5× 画面放大，预览与服务器识别画面同步。</p></div>
       <p id="server-camera-status" role="status" aria-live="polite">正在领取本次扫码权限…</p>
       <div class="actions"><button id="server-camera-start" disabled>开始扫描</button><button id="server-camera-stop" class="secondary" disabled>停止扫描</button><button id="server-camera-result" class="secondary">查看结果</button></div>
       <p id="server-camera-counter" class="note"></p><ol id="server-camera-results" class="camera-queue" aria-label="服务器签到结果"></ol>

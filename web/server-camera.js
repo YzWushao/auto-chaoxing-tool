@@ -1,7 +1,7 @@
 /* Browser uploads JPEG; the Android app supplies native QR results to the same server queue. */
 'use strict';
 const serverCamera={generation:0,stream:null,runId:'',phase:'idle',busy:false,capability:false,pickUsers:false,csrf:'',
-  timer:null,poll:null,expiry:null,abort:null,polling:false,pollGeneration:0,deadline:0,result:null,frameInterval:200,rowsKey:'',native:false,nativeBusy:false};
+  timer:null,poll:null,expiry:null,abort:null,polling:false,pollGeneration:0,deadline:0,result:null,frameInterval:200,rowsKey:'',native:false,nativeBusy:false,zoomFrame:null};
 const sc=id=>document.getElementById(id),scEsc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function serverCameraUserChoices(accounts){
   return accounts.map(a=>`<label class="camera-choice"><input type="checkbox" name="server-camera-user" value="${scEsc(a.id)}" ${a.status==='expired'?'disabled data-unavailable="true"':''}><span>${scEsc(a.name)}${a.status==='expired'?'<small>登录已失效</small>':''}</span></label>`).join('')||'<p>请先添加超星用户。</p>';
@@ -14,7 +14,35 @@ function serverCameraPage(){
     `<div id="server-camera-root"><div class="camera-layout"><section class="panel"><div class="panel-header"><h3>选择本次用户</h3><span class="badge purple">最多 ${state.preferences?.camera_concurrency??1} 人并发</span></div><div class="panel-body"><div class="camera-choice-list">${serverCameraUserChoices(state.accounts)}</div><div class="field"><label for="server-camera-location">二维码附加位置</label><select id="server-camera-location"><option value="">不提交位置</option>${(state.location_presets||[]).flatMap(s=>s.points.map(p=>`<option value="${scEsc(JSON.stringify([s.school,p.name]))}">${scEsc(s.school+' · '+p.name)}</option>`)).join('')}</select></div><p class="setting-note">${window.AndroidScanner?'相机画面留在安卓本机，原生识别后仅发送二维码结果；服务器执行签到。':'画面发往当前服务器，在内存识别，不录像、不保存图片，仅保留最新一帧。'}超星验证码继续使用现有自动验证流程；需要人工处理时会在结果中提示。</p><p class="setting-note">停止、离开页面或切后台会结束扫描；断流 10 秒后服务器自动停止。已发出的签到请求仍可能返回结果。</p></div></section><section class="panel"><div class="panel-header"><h3>连续扫码 · 服务器处理</h3></div><div class="panel-body">${serverCameraControls()}</div></section></div></div>`;
 }
 function serverCameraControls(){
-  return '<div class="camera-preview server-camera-preview"><video id="server-camera-video" autoplay muted playsinline aria-label="本机摄像头预览"></video><svg id="server-camera-outline" class="qr-outline" preserveAspectRatio="xMidYMid meet" role="img" aria-label="服务器识别到的二维码位置" hidden><polygon vector-effect="non-scaling-stroke"></polygon></svg><p>开始后允许摄像头，将二维码放入画面。</p></div><div class="camera-control"><button type="button" class="button primary" id="server-camera-start">开始扫描</button><button type="button" class="button secondary" id="server-camera-stop" disabled>停止扫描</button><button type="button" class="button secondary" id="server-camera-result">查看结果</button></div><p id="server-camera-status" class="camera-status" role="status" aria-live="polite">点击开始扫描，画面将上传至本项目服务器。</p><p id="server-camera-counter" class="setting-note"></p><ol id="server-camera-results" class="camera-queue" aria-label="服务器签到结果"></ol>';
+  return '<div class="camera-preview server-camera-preview"><video id="server-camera-video" autoplay muted playsinline aria-label="本机摄像头预览"></video><canvas id="server-camera-zoom-preview" class="camera-zoom-preview" aria-label="放大后的扫码画面" hidden></canvas><svg id="server-camera-outline" class="qr-outline" preserveAspectRatio="xMidYMid meet" role="img" aria-label="服务器识别到的二维码位置" hidden><polygon vector-effect="non-scaling-stroke"></polygon></svg><p>开始后允许摄像头，将二维码放入画面。</p></div>'+serverCameraZoomControls()+'<div class="camera-control"><button type="button" class="button primary" id="server-camera-start">开始扫描</button><button type="button" class="button secondary" id="server-camera-stop" disabled>停止扫描</button><button type="button" class="button secondary" id="server-camera-result">查看结果</button></div><p id="server-camera-status" class="camera-status" role="status" aria-live="polite">点击开始扫描，画面将上传至本项目服务器。</p><p id="server-camera-counter" class="setting-note"></p><ol id="server-camera-results" class="camera-queue" aria-label="服务器签到结果"></ol>';
+}
+function serverCameraZoomControls(){
+  return '<div class="server-camera-zoom"><div class="server-camera-zoom-heading"><label for="server-camera-zoom">放大倍数</label><output id="server-camera-zoom-value" for="server-camera-zoom">1.0×</output></div><input id="server-camera-zoom" type="range" min="1" max="5" step="0.1" value="1" aria-label="扫码画面放大倍数"><p id="server-camera-zoom-note" class="setting-note">1×–5× 画面放大，预览与服务器识别画面同步。</p></div>';
+}
+function serverCameraZoom(){
+  return Math.min(5,Math.max(1,Number(sc('server-camera-zoom')?.value)||1));
+}
+function updateServerCameraZoom(){
+  const range=sc('server-camera-zoom'),value=sc('server-camera-zoom-value'),note=sc('server-camera-zoom-note');
+  if(value)value.textContent=serverCameraZoom().toFixed(1)+'×';
+  if(range)range.disabled=serverCamera.native||Boolean(window.AndroidScanner);
+  if(note)note.textContent=window.AndroidScanner?'安卓原生相机已提供倍率滑块，请在原生相机下方调节。':'1×–5× 画面放大，预览与服务器识别画面同步。';
+}
+function startServerCameraZoomPreview(generation){
+  const c=serverCamera,video=sc('server-camera-video'),canvas=sc('server-camera-zoom-preview');
+  const context=canvas?.getContext?.('2d',{alpha:false});
+  if(!context||typeof requestAnimationFrame!=='function')return;
+  let previous=0;
+  function draw(now){
+    if(generation!==c.generation||c.phase!=='running')return;
+    const zoom=serverCameraZoom();
+    canvas.hidden=zoom<=1;video.classList.toggle('camera-digital-zoom',zoom>1);
+    if(zoom>1&&video.readyState>=2&&video.videoWidth&&now-previous>=50){
+      QRVision.draw(video,canvas,context,zoom,1280);previous=now;
+    }
+    c.zoomFrame=requestAnimationFrame(draw);
+  }
+  c.zoomFrame=requestAnimationFrame(draw);
 }
 function scHeaders(jpeg=false){
   const headers={'Content-Type':jpeg?'image/jpeg':'application/json'};
@@ -39,6 +67,7 @@ function scMessage(text){if(sc('server-camera-status'))sc('server-camera-status'
 function renderServerCameraState(data=serverCamera.result){
   if(!sc('server-camera-root'))return;
   const c=serverCamera,locked=c.phase==='running'||c.busy;
+  updateServerCameraZoom();
   sc('server-camera-start').disabled=locked||(c.capability&&(!c.csrf||c.phase==='ended'||(c.pickUsers&&!selectedServerCameraUsers().length)));
   sc('server-camera-stop').disabled=!(locked||(c.capability&&c.csrf&&c.phase!=='ended'));
   document.querySelectorAll('[name="server-camera-user"],#server-camera-location').forEach(input=>input.disabled=locked||(c.capability&&c.phase==='ended')||input.dataset.unavailable==='true');
@@ -55,8 +84,11 @@ function renderServerCameraState(data=serverCamera.result){
 function scRelease(){
   const c=serverCamera;c.generation++;clearTimeout(c.timer);clearInterval(c.poll);c.abort?.abort();c.abort=null;
   if(c.native)window.AndroidScanner?.stop();c.nativeBusy=false;
+  if(typeof cancelAnimationFrame==='function')cancelAnimationFrame(c.zoomFrame);c.zoomFrame=null;
   c.stream?.getTracks().forEach(track=>track.stop());c.stream=null;c.busy=false;c.polling=false;
   const video=sc('server-camera-video');if(video){video.pause();video.srcObject=null;delete video.dataset.live;}
+  video?.classList?.remove('camera-digital-zoom');
+  if(sc('server-camera-zoom-preview'))sc('server-camera-zoom-preview').hidden=true;
   QRVision.outline(sc('server-camera-outline'),null);
 }
 function stopServerCamera(message='',remote=true){
@@ -105,6 +137,7 @@ async function startServerCamera(){
       void fetch(path,{method:'POST',credentials:'same-origin',headers:scHeaders(),body:'{}'}).catch(()=>{});return;
     }
     c.runId=result.id;c.frameInterval=Math.max(200,(result.frame_interval||.2)*1000);c.phase='running';c.busy=false;video.dataset.live='true';scAccept(result,generation);
+    startServerCameraZoomPreview(generation);
     const canvas=document.createElement('canvas'),context=canvas.getContext('2d',{alpha:false});
     if(!context)throw new Error('当前浏览器无法读取摄像头画面');
     stream.getVideoTracks().forEach(track=>track.addEventListener('ended',()=>{if(generation===c.generation)stopServerCamera('摄像头断开，扫描已停止。');}));
@@ -112,7 +145,7 @@ async function startServerCamera(){
       if(generation!==c.generation||c.phase!=='running')return;
       try{
         if(video.readyState>=2&&video.videoWidth){
-          const blob=await QRVision.jpeg(video,canvas,context);
+          const blob=await QRVision.jpeg(video,canvas,context,serverCameraZoom());
           if(generation!==c.generation)return;
           const controller=new AbortController();c.abort=controller;const deadline=setTimeout(()=>controller.abort(),8000);
           try{const data=await scRequest('frame',blob,controller.signal);scAccept(data,generation);}
@@ -200,6 +233,11 @@ document.addEventListener('click',async event=>{
 });
 document.addEventListener('change',event=>{
   if(event.target.name==='server-camera-user')renderServerCameraState();
+});
+document.addEventListener('input',event=>{
+  if(event.target.id==='server-camera-zoom'){
+    updateServerCameraZoom();QRVision.outline(sc('server-camera-outline'),null);
+  }
 });
 window.addEventListener('pagehide',()=>{
   const c=serverCamera;

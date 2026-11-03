@@ -176,3 +176,7 @@ def test_server_keeps_only_latest_frame_and_eleventh_failure_rotates(browser,app
 
 def test_push_only_browser_contract():
     run_node("require('./tests/server_camera_controller.cjs')")
+
+
+def test_live_zoom_slider_changes_preview_and_encoded_frame_together():
+    run_node("require('./tests/camera_zoom_controller.cjs')")

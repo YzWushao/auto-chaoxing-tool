@@ -14,11 +14,16 @@
       if(Object.keys(advanced).length)await track.applyConstraints({advanced:[advanced]});
     }catch{}
   }
-  async function jpeg(video,canvas,context){
-    const scale=Math.min(1,1920/Math.max(video.videoWidth,video.videoHeight));
+  function draw(video,canvas,context,zoom=1,maxSide=1920){
+    const ratio=Math.min(5,Math.max(1,Number(zoom)||1));
+    const scale=Math.min(1,maxSide/Math.max(video.videoWidth,video.videoHeight));
     const width=Math.max(1,Math.round(video.videoWidth*scale)),height=Math.max(1,Math.round(video.videoHeight*scale));
     if(canvas.width!==width)canvas.width=width;if(canvas.height!==height)canvas.height=height;
-    context.drawImage(video,0,0,width,height);
+    const sourceWidth=video.videoWidth/ratio,sourceHeight=video.videoHeight/ratio;
+    context.drawImage(video,(video.videoWidth-sourceWidth)/2,(video.videoHeight-sourceHeight)/2,sourceWidth,sourceHeight,0,0,width,height);
+  }
+  async function jpeg(video,canvas,context,zoom=1){
+    draw(video,canvas,context,zoom);
     const encode=quality=>new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('无法编码摄像头画面')),'image/jpeg',quality));
     let blob=await encode(.85);
     if(blob.size>768*1024)blob=await encode(.55);
@@ -34,5 +39,5 @@
     svg.setAttribute('viewBox',`0 0 ${width} ${height}`);svg.setAttribute('data-decoded',result.decoded?'true':'false');
     svg.querySelector('polygon')?.setAttribute('points',points.map(p=>`${p.x},${p.y}`).join(' '));svg.removeAttribute('hidden');
   }
-  return {constraints,focus,jpeg,outline};
+  return {constraints,focus,draw,jpeg,outline};
 });
