@@ -123,7 +123,9 @@ def resolve_challenge(client, referer):
     for attempt in range(2):
         x = predict_offset(challenge)
         if x is None:
-            break
+            if attempt == 0:
+                challenge = create_challenge(client, referer)
+            continue
         proof = check_challenge(client, challenge, x)
         if proof:
             return proof, None

@@ -4,7 +4,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from .camera_sign import CameraRateLimit, qr_parameters
+from .camera_sign import CameraRateLimit, qr_parameters, sign_requirement_message
 from .chaoxing import CaptchaRequired, PlatformError, SessionExpired, SignRequirement
 from .qr_frames import FrameBusy
 
@@ -161,7 +161,7 @@ class CameraRun:
             if not self.order and not self.inflight:
                 complete = all(a['state']=='succeeded' for a in self.entries.values())
                 self.finish('completed' if complete else 'attention',
-                            '所有所选用户已签到成功' if complete else '部分用户需要处理登录或平台验证，请查看结果')
+                            '所有所选用户已签到成功' if complete else '部分用户未完成签到，请查看每位用户的原因')
                 return
             if not self.qr or time.monotonic()-self.qr[1] > 1.5:
                 return
@@ -198,8 +198,8 @@ class CameraRun:
             outcome,message='waiting','超星登录已失效，请到用户管理重新登录'
         except CaptchaRequired:
             outcome,message='waiting','自动验证未通过，请在签到中心或官方客户端处理验证'
-        except SignRequirement:
-            outcome,message='waiting','平台需要位置、照片或其他验证，请在签到中心处理'
+        except SignRequirement as error:
+            outcome,message='waiting',sign_requirement_message(error.code)
         except (ValueError,PlatformError):
             pass
         except Exception:
@@ -219,6 +219,11 @@ class CameraRun:
                         self.order=[v for v in self.order if v!=account_id]+[account_id]
                         item['pass_failures']=0;item['message']='本轮失败 11 次，已移至队尾'
             self.manager.sign_slots.release();self.wake.set()
+            if outcome == 'waiting':
+                self.manager.camera.signing.store.event(
+                    item['owner'], account_id, 'sign_attention',
+                    f'扫码签到未完成（活动 {self.activity_id}）：{message}',
+                )
 
 
 class CameraStreams:

@@ -53,7 +53,12 @@ def execute_sign(client, activity, params, supplied):
     need_verification = str(info.get('ifNeedVCode', '0')) == '1' and not proof
     for attempt in range(2):
         if need_verification:
-            proof, challenge = resolve_challenge(client, referer)
+            try:
+                proof, challenge = resolve_challenge(client, referer)
+            except SessionExpired:
+                raise
+            except PlatformError:
+                raise SignRequirement('captcha_unavailable', '无法获取或校验滑块验证码，请在学习通核对活动状态并处理验证') from None
             if not proof:
                 raise CaptchaRequired(challenge, enc2)
         final = dict(params)

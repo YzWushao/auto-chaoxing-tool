@@ -88,3 +88,17 @@ def test_low_confidence_does_not_submit_verification_answer(monkeypatch):
     monkeypatch.setattr('server.sign_captcha.predict_offset', lambda value: None)
     monkeypatch.setattr('server.sign_captcha.check_challenge', lambda *args: pytest.fail('must not check'))
     assert resolve_challenge(object(), 'offline') == (None, value)
+
+
+def test_low_confidence_first_image_can_recover_with_fresh_challenge(monkeypatch):
+    first, second = challenge(), challenge()
+    images = iter([first, second])
+    monkeypatch.setattr('server.sign_captcha.create_challenge', lambda *args: next(images))
+    monkeypatch.setattr('server.sign_captcha.predict_offset', lambda value: 66 if value is second else None)
+
+    def check(client, value, offset):
+        assert value is second and offset == 66
+        return 'platform-proof'
+
+    monkeypatch.setattr('server.sign_captcha.check_challenge', check)
+    assert resolve_challenge(object(), 'offline') == ('platform-proof', None)

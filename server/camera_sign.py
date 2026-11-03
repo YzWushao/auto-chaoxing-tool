@@ -9,6 +9,20 @@ class CameraRateLimit(ValueError):
     pass
 
 
+SIGN_REQUIREMENT_MESSAGES = {
+    'activity_ended': '平台提示活动已截止或迟到，请在学习通核对结果',
+    'no_permission': '平台提示该用户无此活动的签到权限，请核对课程归属',
+    'face_required': '此用户需要本人照片或人脸验证，请在签到中心或学习通处理',
+    'official_face_required': '此用户需要在学习通完成官方人脸验证',
+    'location_required': '平台要求位置或未接受已提交位置，请核对实际所在位置',
+    'captcha_unavailable': '无法获取或校验滑块验证码，请在学习通核对活动状态并处理验证',
+}
+
+
+def sign_requirement_message(code):
+    return SIGN_REQUIREMENT_MESSAGES.get(code, '平台要求额外处理，请在学习通核对活动要求')
+
+
 def qr_parameters(raw):
     if not isinstance(raw, str) or not 1 <= len(raw) <= 4096:
         raise ValueError('请扫描包含活动编号与 enc 的签到二维码')

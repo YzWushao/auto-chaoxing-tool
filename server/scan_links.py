@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
-from .camera_sign import CameraRateLimit, qr_parameters
+from .camera_sign import CameraRateLimit, qr_parameters, sign_requirement_message
 from .chaoxing import CaptchaRequired, PlatformError, SessionExpired, SignRequirement
 from .config import ROOT
 from .qr_frames import FrameBusy, MAX_FRAME_BYTES
@@ -350,8 +350,10 @@ def install_scan_routes(app, links):
         # Never expose upstream messages, account labels, face or captcha data.
         if isinstance(error, SessionExpired):
             return jsonify(error='本次用户登录已失效，请联系控制台管理员。', code='stop'), 422
-        if isinstance(error, (CaptchaRequired, SignRequirement)):
-            return jsonify(error='平台需要额外验证，请通过官方客户端或控制台完成后重试。', code='stop'), 422
+        if isinstance(error, CaptchaRequired):
+            return jsonify(error='自动滑块验证未通过，请在签到中心或学习通处理验证', code='stop'), 422
+        if isinstance(error, SignRequirement):
+            return jsonify(error=sign_requirement_message(error.code), code='stop'), 422
         return jsonify(error='平台尚未确认签到成功，请继续对准最新二维码。'), 502
 
     @page.errorhandler(Exception)

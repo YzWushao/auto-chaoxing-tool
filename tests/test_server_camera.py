@@ -178,5 +178,24 @@ def test_push_only_browser_contract():
     run_node("require('./tests/server_camera_controller.cjs')")
 
 
+def test_scoped_queue_records_safe_reason_after_activity_ends(grant, monkeypatch):
+    from server.chaoxing import SignRequirement
+
+    def ended(*args, **kwargs):
+        raise SignRequirement('activity_ended', 'PRIVATE_PLATFORM_RESPONSE')
+
+    app = grant['app']
+    monkeypatch.setattr(app.extensions['camera_streams'].camera, 'submit', ended)
+    client, headers, _ = claim(grant)
+    assert client.post('/scan-api/start', json={'input':'native'}, headers=headers).status_code == 200
+    assert client.post('/scan-api/qr', json={'qr':QR}, headers=headers).status_code == 202
+    result = wait_for(lambda: client.get('/scan-api/status', headers=headers).json, lambda value: value.get('terminal'))
+    assert result['state'] == 'attention'
+    assert '已截止' in result['accounts'][0]['message']
+    events = wait_for(lambda: grant['store'].events(grant['owner']), lambda rows: any(row['kind']=='sign_attention' for row in rows))
+    assert '已截止' in next(row['message'] for row in events if row['kind']=='sign_attention')
+    assert 'PRIVATE_PLATFORM_RESPONSE' not in repr((result, events))
+
+
 def test_live_zoom_slider_changes_preview_and_encoded_frame_together():
     run_node("require('./tests/camera_zoom_controller.cjs')")
