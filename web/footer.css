@@ -1,0 +1,5 @@
+.footer-links{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}
+.github-link{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;opacity:.72;flex-shrink:0}
+.github-link:hover{opacity:1;background:#7354d80d}
+.github-link:focus-visible{outline:2px solid #7354d8;outline-offset:2px}
+.github-link img{display:block;width:20px;height:20px}

@@ -20,11 +20,16 @@ run(fs.readFileSync('web/server-camera.js','utf8'));
   {id:'opaque-a',name:'测试甲',status:'active'},{id:'opaque-b',name:'测试乙',status:'active'}]});await flush();
  assert.equal(el('server-camera-user-panel').hidden,false);assert.match(el('server-camera-user-list').innerHTML,/测试甲/);
  assert.equal(el('server-camera-start').disabled,true);await run('startServerCamera()');assert.equal(tracks.length,0);
- choices.push({value:'opaque-a',checked:false,dataset:{}},{value:'opaque-b',checked:true,dataset:{}});
+ choices.push({value:'opaque-a',checked:false,dataset:{}},{value:'opaque-b',checked:false,dataset:{}},
+  {value:'expired-user',checked:false,disabled:true,dataset:{unavailable:'true'}});
+ run('selectAllServerCameraUsers()');assert.equal(choices[0].checked,true);assert.equal(choices[1].checked,true);
+ assert.equal(choices[2].checked,false,'Expired users must not be selected');assert.equal(requests.length,1,'Select-all must not sign or start a camera');
+ choices[0].checked=false;
  events['document:change']({target:{name:'server-camera-user'}});assert.equal(el('server-camera-start').disabled,false);
  const starting=run('startServerCamera()');await flush();
  assert.equal(tracks.length,1);assert.deepEqual(JSON.parse(requests[1].body),{account_ids:['opaque-b']});
  assert(choices.every(a=>a.disabled));
+ run('selectAllServerCameraUsers()');assert.equal(choices[0].checked,false,'Selection freezes while starting');
  respond(1,{id:'run-test',state:'running',terminal:false,accounts:[],message:'等待',frames:0});await starting;await flush();
  assert.equal(requests[2].path,'/scan-api/frame');assert.equal(requests[2].body,blob);
  respond(2,{id:'run-test',terminal:true,state:'completed',accounts:[{id:'opaque-b',name:'测试乙',state:'succeeded',attempts:1,failures:0,message:'成功'}],message:'完成'});await flush();

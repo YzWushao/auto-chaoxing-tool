@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>摄像头扫码签到</title>
+  <link rel="stylesheet" href="/static/footer.css?v=0.13.2">
   <link rel="stylesheet" href="/static/scan-link.css?v=0.13.0">
   <link rel="stylesheet" href="/static/camera-sign.css?v=0.5.0">
-  <link rel="stylesheet" href="/static/qr-vision.css?v=0.13.1">
+  <link rel="stylesheet" href="/static/qr-vision.css?v=0.13.2">
   <link rel="stylesheet" href="/static/android-client.css?v=0.11.0">
   <script src="/static/android-client.js?v=0.11.0" defer></script>
   <script src="/static/qr-vision.js?v=0.13.1" defer></script>
-  <script src="/static/server-camera.js?v=0.13.1" defer></script>
+  <script src="/static/server-camera.js?v=0.13.2" defer></script>
 </head>
 <body>
   <main>
@@ -22,7 +23,7 @@
       <div class="status-bar"><span class="badge">仅限本次扫码</span><span id="remaining">正在检查入口…</span></div>
       <div class="scan-camera-layout">
       <section class="card" id="server-camera-user-panel" hidden>
-        <div class="status-bar"><h2>选择本次用户</h2><span class="badge" id="server-camera-concurrency"></span></div>
+        <div class="status-bar"><h2>选择本次用户</h2><div class="camera-user-actions"><button type="button" class="secondary" id="server-camera-select-all" disabled>全选</button><span class="badge" id="server-camera-concurrency"></span></div></div>
         <div class="camera-choice-list" id="server-camera-user-list"></div>
         <p class="note">手动勾选本次用户，开始后不能更换。需要更换用户时，请结束本次扫描，回 QQ 回复“签到”获取新入口。平台要求的额外验证沿用现有流程。</p>
       </section>
@@ -36,7 +37,7 @@
       <p class="note">如 QQ 内无法开启摄像头，请先将原始消息中的链接复制到系统浏览器再打开。平台要求的额外验证仍需完成。</p>
       </section></div>
     </section>
-    <footer>Powered by wushao · <a href="/legal/license">AGPL-3.0</a> · <a href="https://github.com/YzWushao/auto-chaoxing-tool" rel="noreferrer">源代码</a></footer>
+    <footer class="footer-links"><a href="/legal/license">AGPL-3.0</a><a class="github-link" href="https://github.com/YzWushao/auto-chaoxing-tool" target="_blank" rel="noopener noreferrer" aria-label="GitHub 项目源码（新窗口打开）" title="GitHub"><img src="/static/github.svg" alt="" width="20" height="20"></a></footer>
   </main>
 </body>
 </html>

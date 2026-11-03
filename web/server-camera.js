@@ -9,9 +9,15 @@ function serverCameraUserChoices(accounts){
 function selectedServerCameraUsers(){
   return [...document.querySelectorAll('[name="server-camera-user"]:checked')].map(el=>el.value);
 }
+function selectAllServerCameraUsers(){
+  const c=serverCamera;
+  if(c.busy||c.phase==='running'||(c.capability&&(!c.csrf||c.phase==='ended')))return;
+  document.querySelectorAll('[name="server-camera-user"]').forEach(input=>{if(!input.disabled)input.checked=true;});
+  renderServerCameraState();
+}
 function serverCameraPage(){
   return heading(window.AndroidScanner?'安卓原生扫码签到':'服务器扫码签到',window.AndroidScanner?'手机原生识别并描框，服务器管理用户队列并执行签到。':'手机仅上传连续 JPEG 画面；识别二维码、用户队列和签到提交均在服务器执行。','<a class="button secondary" href="#sign">返回签到中心</a>')+
-    `<div id="server-camera-root"><div class="camera-layout"><section class="panel"><div class="panel-header"><h3>选择本次用户</h3><span class="badge purple">最多 ${state.preferences?.camera_concurrency??1} 人并发</span></div><div class="panel-body"><div class="camera-choice-list">${serverCameraUserChoices(state.accounts)}</div><div class="field"><label for="server-camera-location">二维码附加位置</label><select id="server-camera-location"><option value="">不提交位置</option>${(state.location_presets||[]).flatMap(s=>s.points.map(p=>`<option value="${scEsc(JSON.stringify([s.school,p.name]))}">${scEsc(s.school+' · '+p.name)}</option>`)).join('')}</select></div><p class="setting-note">${window.AndroidScanner?'相机画面留在安卓本机，原生识别后仅发送二维码结果；服务器执行签到。':'画面发往当前服务器，在内存识别，不录像、不保存图片，仅保留最新一帧。'}超星验证码继续使用现有自动验证流程；需要人工处理时会在结果中提示。</p><p class="setting-note">停止、离开页面或切后台会结束扫描；断流 10 秒后服务器自动停止。已发出的签到请求仍可能返回结果。</p></div></section><section class="panel"><div class="panel-header"><h3>连续扫码 · 服务器处理</h3></div><div class="panel-body">${serverCameraControls()}</div></section></div></div>`;
+    `<div id="server-camera-root"><div class="camera-layout"><section class="panel"><div class="panel-header"><h3>选择本次用户</h3><div class="camera-user-actions"><button type="button" class="button secondary small" id="server-camera-select-all">全选</button><span class="badge purple">最多 ${state.preferences?.camera_concurrency??1} 人并发</span></div></div><div class="panel-body"><div class="camera-choice-list">${serverCameraUserChoices(state.accounts)}</div><div class="field"><label for="server-camera-location">二维码附加位置</label><select id="server-camera-location"><option value="">不提交位置</option>${(state.location_presets||[]).flatMap(s=>s.points.map(p=>`<option value="${scEsc(JSON.stringify([s.school,p.name]))}">${scEsc(s.school+' · '+p.name)}</option>`)).join('')}</select></div><p class="setting-note">${window.AndroidScanner?'相机画面留在安卓本机，原生识别后仅发送二维码结果；服务器执行签到。':'画面发往当前服务器，在内存识别，不录像、不保存图片，仅保留最新一帧。'}超星验证码继续使用现有自动验证流程；需要人工处理时会在结果中提示。</p><p class="setting-note">停止、离开页面或切后台会结束扫描；断流 10 秒后服务器自动停止。已发出的签到请求仍可能返回结果。</p></div></section><section class="panel"><div class="panel-header"><h3>连续扫码 · 服务器处理</h3></div><div class="panel-body">${serverCameraControls()}</div></section></div></div>`;
 }
 function serverCameraControls(){
   return '<div class="camera-preview server-camera-preview"><video id="server-camera-video" autoplay muted playsinline aria-label="本机摄像头预览"></video><canvas id="server-camera-zoom-preview" class="camera-zoom-preview" aria-label="放大后的扫码画面" hidden></canvas><svg id="server-camera-outline" class="qr-outline" preserveAspectRatio="xMidYMid meet" role="img" aria-label="服务器识别到的二维码位置" hidden><polygon vector-effect="non-scaling-stroke"></polygon></svg><p>开始后允许摄像头，将二维码放入画面。</p></div>'+serverCameraZoomControls()+'<div class="camera-control"><button type="button" class="button primary" id="server-camera-start">开始扫描</button><button type="button" class="button secondary" id="server-camera-stop" disabled>停止扫描</button><button type="button" class="button secondary" id="server-camera-result">查看结果</button></div><p id="server-camera-status" class="camera-status" role="status" aria-live="polite">点击开始扫描，画面将上传至本项目服务器。</p><p id="server-camera-counter" class="setting-note"></p><ol id="server-camera-results" class="camera-queue" aria-label="服务器签到结果"></ol>';
@@ -70,6 +76,8 @@ function renderServerCameraState(data=serverCamera.result){
   updateServerCameraZoom();
   sc('server-camera-start').disabled=locked||(c.capability&&(!c.csrf||c.phase==='ended'||(c.pickUsers&&!selectedServerCameraUsers().length)));
   sc('server-camera-stop').disabled=!(locked||(c.capability&&c.csrf&&c.phase!=='ended'));
+  const selectAll=sc('server-camera-select-all');
+  if(selectAll)selectAll.disabled=locked||(c.capability&&(!c.csrf||c.phase==='ended'));
   document.querySelectorAll('[name="server-camera-user"],#server-camera-location').forEach(input=>input.disabled=locked||(c.capability&&c.phase==='ended')||input.dataset.unavailable==='true');
   if(!data)return;
   scMessage(data.message);
@@ -221,7 +229,8 @@ async function initializeServerScanLink(){
   }catch(error){c.phase='ended';scMessage(error.message);renderServerCameraState();}
 }
 document.addEventListener('click',async event=>{
-  const button=event.target.closest('#server-camera-start,#server-camera-stop,#server-camera-result');if(!button)return;
+  const button=event.target.closest('#server-camera-start,#server-camera-stop,#server-camera-result,#server-camera-select-all');if(!button||button.disabled)return;
+  if(button.id==='server-camera-select-all')selectAllServerCameraUsers();
   if(button.id==='server-camera-start')void startServerCamera();
   if(button.id==='server-camera-stop'){
     const stopping=serverCamera.runId||serverCamera.capability?scRequest('stop').catch(()=>null):Promise.resolve();
