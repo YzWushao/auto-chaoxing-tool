@@ -27,26 +27,17 @@ class SignService:
     def refresh(self, owner, account_id, source='all'):
         if not isinstance(source, str) or source not in {'all', 'course', 'group'}:
             raise ValueError('签到来源无效')
-        enabled = self.store.preferences(self.preference_owner)['include_group_sign']
-        if source == 'group' and not enabled:
-            raise ValueError('请先在设置中开启获取超星群聊签到')
+        if source == 'group':
+            raise ValueError('群聊签到已取消，仅支持课程签到')
         with self.locks[account_id]:
             value = self.account(owner, account_id)
             warnings = []
             def fetch(client):
                 result = []
-                if source != 'group':
-                    courses = [dict(a, source='course') for a in client.activities(client.courses())]
-                    self.cache[(owner, account_id, 'course')] = (time.monotonic(), courses)
-                    result.extend(courses)
-                if enabled and source != 'course':
-                    self.cache[(owner, account_id, 'group')] = (0, [])
-                    try:
-                        groups = client.group_activities()
-                        self.cache[(owner, account_id, 'group')] = (time.monotonic(), groups)
-                        result.extend(groups)
-                    except PlatformError as error:
-                        warnings.append('群聊签到读取失败：'+str(error))
+                courses = [dict(a, source='course') for a in client.activities(client.courses())]
+                self.cache[(owner, account_id, 'course')] = (time.monotonic(), courses)
+                self.cache.pop((owner, account_id, 'group'), None)
+                result.extend(courses)
                 return result
             result = self.use_client(value, fetch)
             self.warnings[(owner, account_id, source)] = warnings
@@ -72,8 +63,8 @@ class SignService:
             source = supplied.get('source', 'course')
             if not isinstance(source, str) or source not in {'course', 'group'}:
                 raise ValueError('签到来源无效')
-            if source == 'group' and not self.store.preferences(self.preference_owner)['include_group_sign']:
-                raise ValueError('群聊签到已关闭，请重新选择活动')
+            if source == 'group':
+                raise ValueError('群聊签到已取消，仅支持课程签到')
             stamp, cached = self.cache.get((owner, account_id, source), (0, []))
             selected = next((a for a in cached if a['id'] == activity_id), None)
             if not selected or time.monotonic() - stamp > 300:
@@ -88,7 +79,7 @@ class SignService:
                     raise ValueError('验证结果不属于此活动或尚未完成，请重新验证')
                 proof = {'validate': record['validate'], 'enc2': record['enc2']}
             def do_sign(client):
-                live = client.group_activity(selected) if source == 'group' else next((a for a in client.activities([selected['course']]) if a['id'] == activity_id), None)
+                live = next((a for a in client.activities([selected['course']]) if a['id'] == activity_id), None)
                 if not live:
                     raise ValueError('该签到活动已结束或不再可用')
                 # QQ cannot silently reuse a stale activity mode after it changes.
@@ -143,8 +134,8 @@ class SignService:
         self.account(owner, account_id)
         if not isinstance(source, str) or source not in {'course', 'group'}:
             raise ValueError('签到来源无效')
-        if source == 'group' and not self.store.preferences(self.preference_owner)['include_group_sign']:
-            raise ValueError('群聊签到已关闭')
+        if source == 'group':
+            raise ValueError('群聊签到已取消，仅支持课程签到')
         stamp, items = self.cache.get((owner, account_id, source), (0, []))
         selected = next((a for a in items if a['id'] == activity_id), None)
         if not selected or time.monotonic()-stamp > max_age:
@@ -180,8 +171,6 @@ class SignService:
             def check(client):
                 if source == 'course' and selected['course']['key'] not in {c['key'] for c in client.courses()}:
                     raise ValueError('此用户已不在该课程中，无法核对结果')
-                if source == 'group' and not client.group_activity(selected):
-                    raise ValueError('此群聊活动已不可用，无法核对结果')
                 return client.sign_confirmed(selected)
             signed = self.use_client(value, check) is True
             if signed and not self.store.signed(owner, account_id, activity_id):

@@ -14,6 +14,9 @@ def validate_preferences(data, current):
     value = {**DEFAULT_PREFERENCES, **current, **data}
     if not isinstance(value['account_label'], str) or value['account_label'] not in LABEL_MODES or type(value['include_group_sign']) is not bool:
         raise ValueError('用户显示方式或群聊签到开关无效')
+    if data.get('include_group_sign') is True:
+        raise ValueError('群聊签到已取消，仅支持课程签到')
+    value['include_group_sign'] = False
     if type(value['camera_concurrency']) is not int or not 1 <= value['camera_concurrency'] <= 5:
         raise ValueError('扫码签到并发数需要是 1～5 的整数')
     interval = value['camera_scan_interval']

@@ -261,7 +261,9 @@ class Store(DeviceBindings):
         from .preferences import DEFAULT_PREFERENCES
         with self.connect() as db:
             row = db.execute('SELECT value FROM console_preferences WHERE owner=?', (owner,)).fetchone()
-            return {**DEFAULT_PREFERENCES, **self.unseal(row['value'])} if row else dict(DEFAULT_PREFERENCES)
+            value = {**DEFAULT_PREFERENCES, **self.unseal(row['value'])} if row else dict(DEFAULT_PREFERENCES)
+            value['include_group_sign'] = False
+            return value
 
     def set_preferences(self, owner, value):
         with self.connect() as db:

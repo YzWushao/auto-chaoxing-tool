@@ -88,14 +88,15 @@ def test_scanned_id_cannot_bypass_membership_or_sign_mode(browser, monkeypatch):
     assert FakeClient.sign_calls == 0
 
 
-def test_camera_can_resolve_opted_in_group_activity(browser, monkeypatch):
+def test_camera_rejects_group_activity_without_querying_im(browser, monkeypatch):
     from tests.test_group_sign import group_activity
     account = browser.login()
     group = {**group_activity(), 'id': '902', 'kind': 'qr'}
     browser.send('/preferences', {'include_group_sign': True}, 'PUT')
-    monkeypatch.setattr(FakeClient, 'group_activities', lambda c: [group], raising=False)
-    monkeypatch.setattr(FakeClient, 'group_activity', lambda c, selected: group, raising=False)
-    assert browser.send(f"/accounts/{account['id']}/camera-sign", {'qr': QR}).status_code == 200
+    monkeypatch.setattr(FakeClient, 'group_activities', lambda c: pytest.fail('Camera must not query groups'), raising=False)
+    monkeypatch.setattr(FakeClient, 'group_activity', lambda c, selected: pytest.fail('Camera must not submit group activities'), raising=False)
+    assert browser.send(f"/accounts/{account['id']}/camera-sign", {'qr': QR}).status_code == 400
+    assert FakeClient.sign_calls == 0
 
 
 def run_node(program):

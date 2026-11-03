@@ -220,17 +220,14 @@ def test_many_points_paginate_without_losing_global_number(app, browser, chat):
     assert chat['calls'][0][1]['longitude'] == '116.029000'
 
 
-def test_qq_combines_groups_and_uses_current_display_preference(app,browser,chat,monkeypatch):
-    from tests.test_group_sign import group_activity
-    browser.send('/preferences',{'include_group_sign':True,'account_label':'surname_tail'},'PUT')
-    monkeypatch.setattr(FakeClient,'group_activities',lambda c:[group_activity()],raising=False)
-    monkeypatch.setattr(FakeClient,'group_activity',lambda c,s:group_activity(),raising=False)
+def test_qq_excludes_groups_and_uses_current_display_preference(app,browser,chat,monkeypatch):
+    browser.send('/preferences',{'account_label':'surname_tail'},'PUT')
+    monkeypatch.setattr(FakeClient,'group_activities',lambda c:pytest.fail('QQ must not read groups'),raising=False)
     say=chat['message'];say('签到')
     assert '测 0001' in chat['sent'][-1][1]
     say('1')
-    assert '[群聊]' in chat['sent'][-1][1] and '[课程]' in chat['sent'][-1][1]
-    say('5')
-    assert chat['calls'][0][0]['id']=='999'
+    assert '[群聊]' not in chat['sent'][-1][1] and '[课程]' in chat['sent'][-1][1]
+    assert len(chat['conversation'].sessions[QQ]['choices'])==4 and not chat['calls']
 
 
 def test_napcat_config_auth_csrf_masks_encryption_and_export(browser, app):

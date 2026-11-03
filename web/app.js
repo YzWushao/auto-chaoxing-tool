@@ -5,7 +5,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const activeStates = new Set(['queued','running','waiting','stopping']);
-const titles = {overview:'总览',study:'刷课中心','study-config':'刷课参数',sign:'签到中心','sign-group':'群聊签到','sign-camera':'摄像头扫码签到',accounts:'用户管理',settings:'设置',presets:'预设点位',devices:'设备码绑定'};
+const titles = {overview:'总览',study:'刷课中心','study-config':'刷课参数',sign:'签到中心','sign-camera':'摄像头扫码签到',accounts:'用户管理',settings:'设置',presets:'预设点位',devices:'设备码绑定'};
 const jobLabels = {queued:'排队中',running:'运行中',waiting:'等待输入',stopping:'正在停止',succeeded:'已完成',partial:'部分完成',failed:'失败',cancelled:'已停止',interrupted:'已中断'};
 const kindLabels = {normal:'普通签到',gesture:'手势签到',qr:'二维码签到',location:'位置签到',photo:'拍照签到',code:'签到码'};
 const labels = {provider:'题库 / API 提供方',endpoint:'API Endpoint',key:'API Key',model:'模型名称',tokens:'题库 Token',submit:'自动提交章节检测',cover_rate:'最低题库覆盖率',delay:'题目查询间隔（秒）',check_llm_connection:'启动时检查 AI 连接',min_interval_seconds:'AI 请求间隔（秒）',http_proxy:'代理地址',likeapi_search:'LIKE 联网搜索',likeapi_vision:'LIKE 视觉能力',likeapi_model:'LIKE 模型',likeapi_retry:'LIKE 自动重试',likeapi_retry_times:'LIKE 重试次数',url:'TikuAdapter 服务地址',go_authorization:'GO 题库授权 Token',go_min_interval:'GO 请求间隔（秒）',go_retry_times:'GO 重试次数',go_retry_backoff:'GO 退避基数',siliconflow_key:'硅基流动 API Key',siliconflow_model:'硅基流动模型',siliconflow_endpoint:'硅基流动 Endpoint',manual_mode_default:'手动答题模式',manual_mode_separator:'手动答题分隔符',true_list:'判断题正确词表',false_list:'判断题错误词表'};
@@ -150,13 +150,13 @@ function navigate(page) { location.hash = '#' + page; if (state.page===page) ren
 function render() {
   if (!state.authenticated) return;
   const page = location.hash.slice(1); state.page = titles[page] ? page : 'overview';
-  if(state.page==='sign-group'&&!state.preferences?.include_group_sign)state.page='sign';
+  if(state.page==='sign-group')state.page='sign';
   $('#breadcrumb-title').textContent=titles[state.page];
   $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === (state.page==='study-config'?'study':['presets','devices'].includes(state.page)?'settings':['sign-group','sign-camera'].includes(state.page)?'sign':state.page)));
   if(state.page!=='sign-camera')closeSignCamera('已离开扫码页面，摄像头已关闭。');
   if(state.page!=='sign-camera')stopServerCamera('',true);
   if(state.page==='sign-camera'&&$('#server-camera-root')){renderServerCameraState();return;}
-  const renderers = {overview:overviewPage,study:studyPage,'study-config':configPage,sign:signPage,'sign-group':signPage,'sign-camera':serverCameraPage,accounts:accountsPage,settings:settingsPage,presets:presetsPage,devices:deviceBindingsPage};
+  const renderers = {overview:overviewPage,study:studyPage,'study-config':configPage,sign:signPage,'sign-camera':serverCameraPage,accounts:accountsPage,settings:settingsPage,presets:presetsPage,devices:deviceBindingsPage};
   $('#page-content').innerHTML = (state.admin?.default_password?'<div class="notice">管理员仍使用默认密码，请到 <a href="#settings">设置 → 管理员账号与密码</a> 修改后再开放远程访问。</div>':'')+renderers[state.page]();
   if (state.page==='study' && state.logJob) { state.logAfter=0; loadLogs(); }
   if(state.page==='sign-camera')renderServerCameraState();

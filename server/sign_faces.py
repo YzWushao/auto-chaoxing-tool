@@ -98,7 +98,7 @@ class SignFaces:
             selected = self.signing.selection(owner, account_id, activity_id, source)
             value = self.signing.account(owner, account_id)
             def current_requirements(client):
-                live = client.group_activity(selected) if source == 'group' else next((a for a in client.activities([selected['course']]) if a['id'] == activity_id), None)
+                live = next((a for a in client.activities([selected['course']]) if a['id'] == activity_id), None)
                 if not live:
                     raise ValueError('当前用户的此活动已经结束或不再可用，不会上传照片')
                 return client.sign_requirements(live)

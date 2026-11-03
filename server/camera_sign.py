@@ -39,15 +39,15 @@ class CameraSignService:
             if now - self.last_attempt.get(key, -100) < 2:
                 raise CameraRateLimit('请稍候再重试，单个用户的请求至少间隔 2 秒')
             self.last_attempt[key] = now
-            enabled = self.signing.store.preferences(self.signing.preference_owner)['include_group_sign']
+            enabled = False
             stamp, previous_mode, previous_id, activities, warnings = self.discovery.get(key, (0, None, None, [], []))
             if now - stamp >= 60 or previous_mode != enabled or previous_id != activity_id:
                 activities = self.signing.refresh(owner, account_id, 'all')
                 warnings = self.signing.warnings.get((owner, account_id, 'all'), [])
                 self.discovery[key] = (time.monotonic(), enabled, activity_id, activities, warnings)
-            selected = next((a for a in activities if a['id'] == activity_id), None)
+            selected = next((a for a in activities if a['id'] == activity_id and a.get('source','course')=='course'), None)
             if not selected:
-                raise ValueError(warnings[0] if warnings else '该用户没有此进行中的签到活动，请确认课程或群聊归属')
+                raise ValueError(warnings[0] if warnings else '该用户没有此进行中的签到活动，请确认课程归属')
             if selected['kind'] != 'qr' or selected.get('photo'):
                 raise ValueError('此活动不是单独的二维码签到，请在普通签到页面处理')
             parameters = {'activity_id': activity_id, 'source': selected['source'], 'kind': 'qr', 'qr': enc,

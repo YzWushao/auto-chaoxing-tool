@@ -29,7 +29,7 @@ def test_preferences_auth_csrf_and_preserve_platform_real_name(browser,app):
     assert browser.get('/bootstrap').json['preferences']['account_label']=='full_name'
 
 
-@pytest.mark.parametrize('data',[{'account_label':'unknown'},{'account_label':[]},{'include_group_sign':'yes'},{'token':'not-allowed'}])
+@pytest.mark.parametrize('data',[{'account_label':'unknown'},{'account_label':[]},{'include_group_sign':'yes'},{'include_group_sign':True},{'token':'not-allowed'}])
 def test_bad_preferences(data):
     with pytest.raises(ValueError):
         validate_preferences(data,DEFAULT_PREFERENCES)
@@ -66,3 +66,4 @@ def test_camera_preferences_default_save_and_restart(browser, app):
     store.set_preferences(owner, {'account_label': 'full_name', 'include_group_sign': True})
     defaults = browser.get('/bootstrap').json['preferences']
     assert defaults['camera_concurrency'] == 1 and defaults['camera_scan_interval'] == 0.1
+    assert defaults['include_group_sign'] is False

@@ -82,55 +82,45 @@ def group_activity():
             'course':{'key':'group:777','courseId':'101','clazzId':'201','cpi':'','title':'离线群聊'},'_group_item':{'aid':'999','courseInfo':{}}}
 
 
-def test_group_scope_requires_opt_in_and_does_not_leak_internal_attachment(browser,monkeypatch):
+def test_group_scope_is_retired_and_cannot_be_enabled(browser,monkeypatch):
     account=browser.login()
-    def groups(client):return [group_activity()]
-    monkeypatch.setattr(FakeClient,'group_activities',groups,raising=False)
+    monkeypatch.setattr(FakeClient,'group_activities',lambda c:pytest.fail('Retired group fetch must not run'),raising=False)
+    assert browser.send('/preferences',{'include_group_sign':True},'PUT').status_code==400
     assert browser.get(f"/accounts/{account['id']}/activities?source=group").status_code==400
-    assert browser.send('/preferences',{'include_group_sign':True},'PUT').status_code==200
-    result=browser.get(f"/accounts/{account['id']}/activities?source=group")
-    assert result.status_code==200 and len(result.json['activities'])==1
-    assert result.json['activities'][0]['source']=='group'
-    assert '_group_item' not in result.json['activities'][0]
-    assert browser.get(f"/accounts/{account['id']}/activities?source=course").json['activities'][0]['id']=='901'
-
-
-def test_web_group_sign_revalidates_membership_and_respects_disabling(browser,monkeypatch):
-    account=browser.login();browser.send('/preferences',{'include_group_sign':True},'PUT')
-    monkeypatch.setattr(FakeClient,'group_activities',lambda c:[group_activity()],raising=False)
-    checks=[]
-    def live(client,selected):checks.append(selected['group_id']);return group_activity()
-    monkeypatch.setattr(FakeClient,'group_activity',live,raising=False)
-    browser.get(f"/accounts/{account['id']}/activities?source=group")
-    result=browser.send(f"/accounts/{account['id']}/sign",{'activity_id':'999','source':'group'})
-    assert result.status_code==200 and checks==['777']
-    assert FakeClient.sign_calls==1
-
-
-def test_group_errors_are_explicit_but_course_results_remain_available(app,browser,monkeypatch):
-    account=browser.login();browser.send('/preferences',{'include_group_sign':True},'PUT')
-    def fail(client):raise PlatformError('离线群聊错误')
-    monkeypatch.setattr(FakeClient,'group_activities',fail,raising=False)
     result=browser.get(f"/accounts/{account['id']}/activities?source=all")
-    assert result.status_code==200 and result.json['activities'][0]['source']=='course'
-    assert '群聊签到读取失败' in result.json['warnings'][0]
-    result=browser.get(f"/accounts/{account['id']}/activities?source=group")
-    assert result.json['activities']==[] and result.json['warnings']
+    assert result.status_code==200 and all(a['source']=='course' for a in result.json['activities'])
+
+
+def test_stale_group_cache_cannot_be_submitted(app,browser,monkeypatch):
+    account=browser.login();owner=app.extensions['napcat'].owner
+    app.extensions['store'].set_preferences(owner,{'account_label':'phone_tail','include_group_sign':True})
+    app.extensions['signing'].cache[(owner,account['id'],'group')]=(time.monotonic(),[group_activity()])
+    monkeypatch.setattr(FakeClient,'group_activity',lambda *a:pytest.fail('Stale group submission must not run'),raising=False)
+    result=browser.send(f"/accounts/{account['id']}/sign",{'activity_id':'999','source':'group'})
+    assert result.status_code==400 and FakeClient.sign_calls==0
+    assert browser.get('/bootstrap').json['preferences']['include_group_sign'] is False
+
+
+def test_old_enabled_setting_still_reads_courses_only(app,browser,monkeypatch):
+    account=browser.login();owner=app.extensions['napcat'].owner
+    app.extensions['store'].set_preferences(owner,{'account_label':'full_name','include_group_sign':True})
+    monkeypatch.setattr(FakeClient,'group_activities',lambda c:pytest.fail('Must not contact IM'),raising=False)
+    result=browser.get(f"/accounts/{account['id']}/activities?source=all")
+    assert result.status_code==200 and result.json['warnings']==[]
+    assert all(a['source']=='course' for a in result.json['activities'])
+    assert browser.get('/bootstrap').json['preferences']['account_label']=='full_name'
 
 
 def test_groups_are_not_fetched_for_course_scope_or_disabled_default(browser,monkeypatch):
     account=browser.login()
     monkeypatch.setattr(FakeClient,'group_activities',lambda c:pytest.fail('must not contact IM'),raising=False)
     assert browser.get(f"/accounts/{account['id']}/activities?source=all").status_code==200
-    browser.send('/preferences',{'include_group_sign':True},'PUT')
     assert browser.get(f"/accounts/{account['id']}/activities?source=course").status_code==200
 
 
-def test_disabling_groups_revokes_stale_selection_and_bad_source_is_400(browser,monkeypatch):
-    account=browser.login();browser.send('/preferences',{'include_group_sign':True},'PUT')
-    monkeypatch.setattr(FakeClient,'group_activities',lambda c:[group_activity()],raising=False)
-    browser.get(f"/accounts/{account['id']}/activities?source=group")
-    browser.send('/preferences',{'include_group_sign':False},'PUT')
+def test_group_requirements_and_bad_source_are_rejected(browser):
+    account=browser.login()
+    assert browser.get(f"/accounts/{account['id']}/activities?source=group").status_code==400
     assert browser.send(f"/accounts/{account['id']}/sign",{'activity_id':'999','source':'group'}).status_code==400
     assert browser.send(f"/accounts/{account['id']}/sign",{'activity_id':'999','source':[]}).status_code==400
     assert FakeClient.sign_calls==0
