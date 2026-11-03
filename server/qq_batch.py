@@ -48,12 +48,12 @@ class BatchConversation:
         return '本次请求未确认，请先在官方客户端核对结果', False
 
     def batch_accounts(self, qq, state, users):
-        if len(users) > MAX_USERS:
+        if len(users) > MAX_USERS and not state.get('all_accounts'):
             raise ValueError('一次最多选择 200 位用户，请缩小选择范围')
         owned = {(a['owner'], a['id']) for a in self.accounts()}
         if any((u['owner'], u['id']) not in owned for u in users):
             raise ValueError('用户已移除，请重新发送“签到”')
-        self.send(qq, f'正在刷新所选 {len(users)} 位用户的签到列表…')
+        self.send(qq, f"正在检查{'全部' if state.get('all_accounts') else '所选'} {len(users)} 位用户的签到信息…")
         groups, failures, count = {}, [], 0
         for user in users:
             if not self.settings().get('enabled') or qq not in self.settings().get('allowed_qqs', []):
@@ -71,7 +71,7 @@ class BatchConversation:
                 activities = [a for a in activities if a.get('phase') == 'out']
             for activity in activities:
                 count += 1
-                if count > MAX_TASKS:
+                if count > MAX_TASKS and not state.get('all_accounts'):
                     raise ValueError('本次活动过多，请减少所选用户后重新刷新；尚未提交签到')
                 key = (activity['id'], activity.get('phase', 'in'), activity.get('source', 'course'), activity['kind'], bool(activity.get('photo')))
                 group = groups.setdefault(key, {**activity, 'targets': [], 'signed': True})
@@ -84,8 +84,8 @@ class BatchConversation:
             self.send(qq, '所选用户当前没有可列出的进行中签到；读取失败的用户请处理后重试。')
             return
         self.revoke_scan(qq)
-        state.update(batch=True, phase='activity', choices=list(groups.values()), page=0,
-                     name=f'所选 {len(users)} 位用户', scan_entry='', touched=time.monotonic())
+        state.update(batch=True, phase='activity', choices=sorted(groups.values(),key=lambda a:-len(a['targets'])), page=0,
+                     name=f"{'全部' if state.get('all_accounts') else '所选'} {len(users)} 位用户", scan_entry='', touched=time.monotonic())
         self.show(qq, state)
 
     def batch_start(self, qq, state, groups):

@@ -197,11 +197,11 @@ def test_qq_sign_sends_picker_immediately_and_repeating_replaces_it(grant):
     def say(text, index):
         chat.handle({'user_id': QQ, 'self_id': BOT, 'post_type': 'message', 'message_type': 'private',
                      'time': time.time(), 'message_id': index, 'message': [{'type': 'text', 'data': {'text': text}}]})
-    say('签到', 1)
+    say('扫码签到', 1)
     assert '/scan#' in sent[-1] and '免控制台登录' in sent[-1]
     assert '手动勾选' in sent[-1] and not chat.sessions
     old = sent[-1].split('/scan#')[1].split()[0]
-    say('签到', 2)
+    say('扫码签到', 2)
     assert '/scan#' in sent[-1]
     with pytest.raises(ScanLinkExpired):
         links.claim(old)

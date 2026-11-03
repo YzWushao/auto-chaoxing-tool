@@ -149,7 +149,15 @@ class SignConversation(BatchConversation):
 
     def send(self, qq, message):
         # OneBot text segment, not a CQ-code-interpreted string.
-        self.rpc('send_private_msg', {'user_id': int(qq), 'message': [{'type': 'text', 'data': {'text': message}}]})
+        chunks = []
+        while len(message)>1800:
+            end = message.rfind('\n',0,1800)
+            end = end if end>0 else 1800
+            chunks.append(message[:end]);message=message[end:]
+            if message.startswith('\n'):message=message[1:]
+        chunks.append(message)
+        for chunk in chunks:
+            self.rpc('send_private_msg', {'user_id': int(qq), 'message': [{'type': 'text', 'data': {'text': chunk}}]})
 
     def show(self, qq, state):
         choices, page = state['choices'], state.get('page', 0)
@@ -159,6 +167,7 @@ class SignConversation(BatchConversation):
         lines = [title]
         for i in range(page*size, min(len(choices), (page+1)*size)):
             item = choices[i]
+            suffix = ''
             if state['phase'] == 'account':
                 label = item['name'] + ('（登录失效）' if item['status'] != 'active' else '')
             elif state['phase'] == 'activity':
@@ -168,10 +177,10 @@ class SignConversation(BatchConversation):
                 origin = '课程/群聊' if item.get('from_group') else '群聊' if item.get('source') == 'group' else '课程'
                 label = f"[{origin}] {item['course']['title']} · {item['title']} [{mode}]" + (('（已签退）' if item.get('phase')=='out' else '（已签到）') if item['signed'] else '')
                 if item.get('targets'):
-                    label += f"（{len(item['targets'])} 位所选用户）"
+                    suffix = f" · 涉及 {len(item['targets'])} 人（"+'、'.join(t['name'] for t in item['targets'])+'）'
             else:
                 label = item['school'] + ' · ' + item['name']
-            lines.append(f'{i+1}. {label[:200]}')
+            lines.append(f'{i+1}. {label[:200]}{suffix}')
         if len(choices) > size:
             lines.append(f'第 {page+1}/{(len(choices)+size-1)//size} 页；可回复“下一页”或“上一页”，序号跨页不变。')
         if state['phase'] == 'activity' and state.get('scan_entry'):
@@ -180,7 +189,7 @@ class SignConversation(BatchConversation):
             lines.append('支持多选：1,3,5 或 1-5；回复“全选”或“一键全选”选择全部分页。')
         elif state.get('batch'):
             lines.append('该点位用于本活动的所选用户；回复“跳过”处理下一项。')
-        lines.append('回复“签到”重新选择用户，回复“取消”结束。5 分钟未操作会过期。')
+        lines.append('回复“签到”刷新全部用户的签到信息；回复“扫码签到”获取摄像头入口；回复“取消”结束。5 分钟未操作会过期。')
         self.send(qq, '\n'.join(lines))
 
     def handle(self, event):
@@ -221,7 +230,7 @@ class SignConversation(BatchConversation):
             self.send(qq, '当前没有待确认的全选操作，请重新选择。')
             return
         elif (config.get('intent_enabled') and text and not images
-              and text not in {'签到', '签退', '取消', '下一页', '上一页', '跳过', '继续'} | ALL_SELECTIONS
+              and text not in {'签到', '扫码签到', '签退', '取消', '下一页', '上一页', '跳过', '继续'} | ALL_SELECTIONS
               and not re.fullmatch(r'[0-9\s,，、;；~～至-]+', text)):
             if re.search(r'https?://|SIGNIN:|enc\s*=|\[CQ:', text, re.I):
                 self.send(qq, '二维码请直接发送图片；文字操作请使用列表序号或标准指令。')
@@ -251,11 +260,11 @@ class SignConversation(BatchConversation):
             self.sessions.pop(qq, None)
             self.send(qq, '已取消本次签到会话。')
             return
-        if text in {'签到', '签退'}:
+        if text in {'签到', '扫码签到', '签退'}:
             self.revoke_scan(qq)
-            if text == '签到' and self.scan_links:
+            if text == '扫码签到':
                 self.sessions.pop(qq, None)
-                link = self.scan_links.issue_picker(qq)
+                link = self.scan_links.issue_picker(qq) if self.scan_links else None
                 if not link:
                     self.send(qq, '暂时无法生成扫码入口。请在网页设置中配置一次性扫码入口地址，并确认已有超星用户（每次最多 200 位）。')
                     return
@@ -270,6 +279,14 @@ class SignConversation(BatchConversation):
                 return
             state = {'phase': 'account', 'choices': choices, 'touched': now, 'page': 0, 'want_phase': 'out' if text=='签退' else 'all'}
             self.sessions[qq] = state
+            if text=='签到' and self.scan_links:
+                state['all_accounts'] = True
+                try:
+                    self.batch_accounts(qq,state,choices)
+                except ValueError as error:
+                    self.sessions.pop(qq,None)
+                    self.send(qq,str(error))
+                return
             self.show(qq, state)
             return
         if state is None:
