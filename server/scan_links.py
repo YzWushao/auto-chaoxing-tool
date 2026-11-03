@@ -14,6 +14,7 @@ from .chaoxing import CaptchaRequired, PlatformError, SessionExpired, SignRequir
 from .config import ROOT
 from .qr_frames import FrameBusy, MAX_FRAME_BYTES
 from .preferences import account_label
+from .location_presets import school_points, resolve_point
 
 
 class ScanLinkExpired(Exception):
@@ -108,9 +109,11 @@ class ScanLinks:
                          for owner in self.store.managed_owners(admin['id']) for a in self.store.accounts(owner))
         if not accounts or len(accounts) > 200:
             return None
-        return self._mint(qq, base, accounts, None, picker=True)
+        locations = tuple(dict(alias=secrets.token_urlsafe(12),school=p['school'],name=p['name'])
+                          for p in school_points(self.store.location_presets(self.camera.signing.preference_owner)))
+        return self._mint(qq, base, accounts, None, picker=True, locations=locations)
 
-    def _mint(self, qq, base, accounts, allowed, picker=False):
+    def _mint(self, qq, base, accounts, allowed, picker=False, locations=()):
         owner,account_id = accounts[0]['owner'],accounts[0]['id']
         with self.lock:
             self._prune()
@@ -118,7 +121,7 @@ class ScanLinks:
                 return None
             token = secrets.token_urlsafe(32)
             self.tickets[digest(token)] = dict(qq=qq, owner=owner, account_id=account_id, accounts=accounts, allowed=allowed,
-                picker=picker, active=True, expires=time.monotonic()+self.ttl, lock=threading.Lock(), bound=None)
+                picker=picker, locations=locations, active=True, expires=time.monotonic()+self.ttl, lock=threading.Lock(), bound=None)
         # Fragments are never sent in HTTP requests, access logs or Referer.
         return base + '/scan#' + token
 
@@ -173,7 +176,22 @@ class ScanLinks:
         if entry.get('picker'):
             result.update(select_users=True, concurrency=prefs['camera_concurrency'], accounts=[
                 dict(id=a['alias'], name=a['name'], status=self.store.account(a['owner'], a['id'])['status']) for a in entry['accounts']])
+            current = {(p['school'],p['name']):p for p in school_points(self.store.location_presets(self.camera.signing.preference_owner))}
+            result['locations'] = [dict(id=p['alias'],school=p['school'],name=p['name'],address=current[(p['school'],p['name'])]['address'])
+                                   for p in entry.get('locations',()) if (p['school'],p['name']) in current]
         return result
+
+    def location_reference(self, entry, alias):
+        if alias is None:
+            return None
+        if not isinstance(alias,str):
+            raise ValueError()
+        item = next((p for p in entry.get('locations',()) if p['alias']==alias),None)
+        if item is None:
+            raise ValueError()
+        reference = dict(school=item['school'],name=item['name'])
+        resolve_point(self.store,self.camera.signing.preference_owner,reference)
+        return reference
 
     def select_users(self, entry, aliases):
         if (not isinstance(aliases, list) or not 1 <= len(aliases) <= 200
@@ -302,7 +320,7 @@ def install_scan_routes(app, links):
     def start_stream():
         record = entry()
         options = payload()
-        fields = {'input', 'account_ids'} if record.get('picker') else {'input'}
+        fields = {'input', 'account_ids', 'location'} if record.get('picker') else {'input'}
         if set(options)-fields or options.get('input','jpeg') not in ('jpeg','native'):
             raise ValueError()
         links.status(record)
@@ -314,6 +332,8 @@ def install_scan_routes(app, links):
                     raise ValueError()
                 if record.get('picker') and options.get('account_ids') != [a['alias'] for a in record['accounts']]:
                     raise ValueError()
+                if options.get('location') != record.get('selected_location'):
+                    raise ValueError()
                 return jsonify(links.snapshot(record, run))
             def finished(summary):
                 with links.lock:
@@ -322,12 +342,14 @@ def install_scan_routes(app, links):
                         record['active'] = False
             prefs = links.store.preferences(links.camera.signing.preference_owner)
             accounts = links.select_users(record, options.get('account_ids')) if record.get('picker') else record['accounts']
+            location = links.location_reference(record,options.get('location')) if record.get('picker') else None
             selected = [dict(id=a['id'],owner=a['owner'],name='当前用户') for a in accounts]
             run = streams.start(('scan',id(record)),selected,concurrency=prefs['camera_concurrency'],
                                 expires=record['expires'],allowed=record['allowed'],authority=lambda:links._alive(record),finished=finished,
-                                interval=prefs['camera_scan_interval'],
+                                interval=prefs['camera_scan_interval'],location=location,
                                 input_mode=options.get('input','jpeg'))
             record['accounts'] = accounts
+            record['selected_location'] = options.get('location')
             record['stream_id'] = run.id
             record['stream_result_access'] = True
             return jsonify(links.snapshot(record, run))

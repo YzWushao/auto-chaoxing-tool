@@ -1,7 +1,7 @@
 /* Browser uploads JPEG; the Android app supplies native QR results to the same server queue. */
 'use strict';
 const serverCamera={generation:0,stream:null,runId:'',phase:'idle',busy:false,capability:false,pickUsers:false,csrf:'',
-  timer:null,poll:null,expiry:null,abort:null,polling:false,pollGeneration:0,deadline:0,result:null,frameInterval:200,rowsKey:'',native:false,nativeBusy:false,zoomFrame:null};
+  timer:null,poll:null,expiry:null,abort:null,polling:false,pollGeneration:0,deadline:0,result:null,frameInterval:200,rowsKey:'',native:false,nativeBusy:false,zoomFrame:null,manualUsers:null};
 const sc=id=>document.getElementById(id),scEsc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function serverCameraUserChoices(accounts){
   return accounts.map(a=>`<label class="camera-choice"><input type="checkbox" name="server-camera-user" value="${scEsc(a.id)}" ${a.status==='expired'?'disabled data-unavailable="true"':''}><span>${scEsc(a.name)}${a.status==='expired'?'<small>登录已失效</small>':''}</span></label>`).join('')||'<p>请先添加超星用户。</p>';
@@ -15,9 +15,22 @@ function selectAllServerCameraUsers(){
   document.querySelectorAll('[name="server-camera-user"]').forEach(input=>{if(!input.disabled)input.checked=true;});
   renderServerCameraState();
 }
+function serverCameraLocationChoices(locations){
+  return locations.map(p=>`<label class="camera-choice"><input type="radio" name="server-camera-location" value="${scEsc(p.id)}"><span>${scEsc(p.school+' · '+p.name)}<small>学校位置：${scEsc(p.address||p.school)}</small></span></label>`).join('')||'<p class="setting-note">暂无预设点位，请先到设置创建学校、填写学校位置并添加点位。</p>';
+}
+function serverCameraLocationControls(locations){
+  return `<section id="server-camera-location-panel"><label class="camera-switch"><input type="checkbox" id="server-camera-report-location" role="switch">上报位置</label><div class="camera-location-list" id="server-camera-location-list" hidden>${serverCameraLocationChoices(locations)}</div><p class="setting-note">关闭时不提交位置；开启后选择点位，位置说明统一使用学校位置。</p></section>`;
+}
+function selectedServerCameraLocation(){
+  if(!sc('server-camera-report-location')?.checked)return null;
+  const value=document.querySelector('[name="server-camera-location"]:checked')?.value;
+  if(!value)throw new Error('已开启上报位置，请选择一个点位。');
+  if(serverCamera.capability)return value;
+  const [school,name]=JSON.parse(value);return {school,name};
+}
 function serverCameraPage(){
   return heading(window.AndroidScanner?'安卓原生扫码签到':'服务器扫码签到',window.AndroidScanner?'手机原生识别并描框，服务器管理用户队列并执行签到。':'手机仅上传连续 JPEG 画面；识别二维码、用户队列和签到提交均在服务器执行。','<a class="button secondary" href="#sign">返回签到中心</a>')+
-    `<div id="server-camera-root"><div class="camera-layout"><section class="panel"><div class="panel-header"><h3>选择本次用户</h3><div class="camera-user-actions"><button type="button" class="button secondary small" id="server-camera-select-all">全选</button><span class="badge purple">最多 ${state.preferences?.camera_concurrency??1} 人并发</span></div></div><div class="panel-body"><div class="camera-choice-list">${serverCameraUserChoices(state.accounts)}</div><div class="field"><label for="server-camera-location">二维码附加位置</label><select id="server-camera-location"><option value="">不提交位置</option>${(state.location_presets||[]).flatMap(s=>s.points.map(p=>`<option value="${scEsc(JSON.stringify([s.school,p.name]))}">${scEsc(s.school+' · '+p.name)}</option>`)).join('')}</select></div><p class="setting-note">${window.AndroidScanner?'相机画面留在安卓本机，原生识别后仅发送二维码结果；服务器执行签到。':'画面发往当前服务器，在内存识别，不录像、不保存图片，仅保留最新一帧。'}超星验证码继续使用现有自动验证流程；需要人工处理时会在结果中提示。</p><p class="setting-note">停止、离开页面或切后台会结束扫描；断流 10 秒后服务器自动停止。已发出的签到请求仍可能返回结果。</p></div></section><section class="panel"><div class="panel-header"><h3>连续扫码 · 服务器处理</h3></div><div class="panel-body">${serverCameraControls()}</div></section></div></div>`;
+    `<div id="server-camera-root"><div class="camera-layout"><section class="panel"><div class="panel-header"><h3>选择本次用户</h3><div class="camera-user-actions"><label class="camera-switch"><input type="checkbox" id="server-camera-select-all" role="switch">全选用户</label><span class="badge purple">最多 ${state.preferences?.camera_concurrency??1} 人并发</span></div></div><div class="panel-body"><p class="setting-note" id="server-camera-user-summary"></p><div class="camera-choice-list" id="server-camera-user-list">${serverCameraUserChoices(state.accounts)}</div>${serverCameraLocationControls((state.location_presets||[]).flatMap(s=>s.points.map(p=>({id:JSON.stringify([s.school,p.name]),school:s.school,name:p.name,address:s.address||s.school}))))}<p class="setting-note">${window.AndroidScanner?'相机画面留在安卓本机，原生识别后仅发送二维码结果；服务器执行签到。':'画面发往当前服务器，在内存识别，不录像、不保存图片，仅保留最新一帧。'}超星验证码继续使用现有自动验证流程；需要人工处理时会在结果中提示。</p><p class="setting-note">停止、离开页面或切后台会结束扫描；断流 10 秒后服务器自动停止。已发出的签到请求仍可能返回结果。</p></div></section><section class="panel"><div class="panel-header"><h3>连续扫码 · 服务器处理</h3></div><div class="panel-body">${serverCameraControls()}</div></section></div></div>`;
 }
 function serverCameraControls(){
   return '<div class="camera-preview server-camera-preview"><video id="server-camera-video" autoplay muted playsinline aria-label="本机摄像头预览"></video><canvas id="server-camera-zoom-preview" class="camera-zoom-preview" aria-label="放大后的扫码画面" hidden></canvas><svg id="server-camera-outline" class="qr-outline" preserveAspectRatio="xMidYMid meet" role="img" aria-label="服务器识别到的二维码位置" hidden><polygon vector-effect="non-scaling-stroke"></polygon></svg><p>开始后允许摄像头，将二维码放入画面。</p></div>'+serverCameraZoomControls()+'<div class="camera-control"><button type="button" class="button primary" id="server-camera-start">开始扫描</button><button type="button" class="button secondary" id="server-camera-stop" disabled>停止扫描</button><button type="button" class="button secondary" id="server-camera-result">查看结果</button></div><p id="server-camera-status" class="camera-status" role="status" aria-live="polite">点击开始扫描，画面将上传至本项目服务器。</p><p id="server-camera-counter" class="setting-note"></p><ol id="server-camera-results" class="camera-queue" aria-label="服务器签到结果"></ol>';
@@ -78,7 +91,10 @@ function renderServerCameraState(data=serverCamera.result){
   sc('server-camera-stop').disabled=!(locked||(c.capability&&c.csrf&&c.phase!=='ended'));
   const selectAll=sc('server-camera-select-all');
   if(selectAll)selectAll.disabled=locked||(c.capability&&(!c.csrf||c.phase==='ended'));
-  document.querySelectorAll('[name="server-camera-user"],#server-camera-location').forEach(input=>input.disabled=locked||(c.capability&&c.phase==='ended')||input.dataset.unavailable==='true');
+  if(sc('server-camera-user-list'))sc('server-camera-user-list').hidden=Boolean(selectAll?.checked);
+  if(sc('server-camera-user-summary'))sc('server-camera-user-summary').textContent=selectAll?.checked?`已全选 ${selectedServerCameraUsers().length} 位可用用户；关闭开关可手动选择。`:`已选择 ${selectedServerCameraUsers().length} 位用户`;
+  if(sc('server-camera-location-list'))sc('server-camera-location-list').hidden=!sc('server-camera-report-location')?.checked;
+  document.querySelectorAll('[name="server-camera-user"],[name="server-camera-location"],#server-camera-report-location').forEach(input=>input.disabled=locked||(c.capability&&c.phase==='ended')||input.dataset.unavailable==='true');
   if(!data)return;
   scMessage(data.message);
   sc('server-camera-counter').textContent=c.native?`原生识别 · 已接收 ${data.decoded_frames||0} 次有效二维码`:`已接收 ${data.frames||0} 帧 · 已识别 ${data.decoded_frames||0} 帧`;
@@ -127,7 +143,8 @@ async function startServerCamera(){
   const c=serverCamera;if(c.phase==='running'||c.busy)return;
   const accounts=c.capability&&!c.pickUsers?[]:selectedServerCameraUsers();
   if((!c.capability||c.pickUsers)&&!accounts.length){scMessage('请先选择本次需要签到的用户。');return;}
-  if(window.AndroidScanner){await startAndroidCamera(accounts);return;}
+  let location;try{location=selectedServerCameraLocation();}catch(error){scMessage(error.message);return;}
+  if(window.AndroidScanner){await startAndroidCamera(accounts,location);return;}
   c.native=false;
   if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){scMessage('摄像头需要 HTTPS，请在系统浏览器中打开入口。');return;}
   c.busy=true;c.result=null;c.rowsKey='';c.runId='';const generation=++c.generation;renderServerCameraState();scMessage('请允许使用摄像头，开始后连续 JPEG 将上传到服务器。');
@@ -137,9 +154,8 @@ async function startServerCamera(){
     c.stream=stream;const video=sc('server-camera-video');video.srcObject=stream;await video.play();
     if(generation!==c.generation)return;
     void QRVision.focus(stream.getVideoTracks()[0]);
-    const payload={account_ids:accounts},location=sc('server-camera-location')?.value;
-    if(location){const [school,name]=JSON.parse(location);payload.location={school,name};}
-    const result=await scRequest('start',c.capability?(c.pickUsers?{account_ids:accounts}:{}):payload);
+    const payload={account_ids:accounts};if(location)payload.location=location;
+    const result=await scRequest('start',c.capability?(c.pickUsers?payload:{}):payload);
     if(generation!==c.generation){
       const path=c.capability?'/scan-api/close':`/api/camera-stream/${encodeURIComponent(result.id)}/stop`;
       void fetch(path,{method:'POST',credentials:'same-origin',headers:scHeaders(),body:'{}'}).catch(()=>{});return;
@@ -174,7 +190,7 @@ async function startServerCamera(){
     stopServerCamera(error.name==='NotAllowedError'?'摄像头权限尚未允许，请允许后重新开始。':error.message);
   }
 }
-async function startAndroidCamera(accounts){
+async function startAndroidCamera(accounts,location){
   const c=serverCamera;c.native=true;c.busy=true;c.result=null;c.rowsKey='';c.runId='';
   const generation=++c.generation;renderServerCameraState();scMessage('正在启动安卓原生相机，请允许摄像头权限。');
   try{
@@ -192,9 +208,8 @@ async function startAndroidCamera(accounts){
         }finally{clearTimeout(timeout);if(c.abort===controller)c.abort=null;if(generation===c.generation)c.nativeBusy=false;}
       }});
     if(generation!==c.generation)return;
-    const payload={account_ids:accounts,input:'native'},location=sc('server-camera-location')?.value;
-    if(location){const [school,name]=JSON.parse(location);payload.location={school,name};}
-    const result=await scRequest('start',c.capability?{input:'native',...(c.pickUsers?{account_ids:accounts}:{})}:payload);
+    const payload={account_ids:accounts,input:'native'};if(location)payload.location=location;
+    const result=await scRequest('start',c.capability?(c.pickUsers?payload:{input:'native'}):payload);
     if(generation!==c.generation){
       const path=c.capability?'/scan-api/close':`/api/camera-stream/${encodeURIComponent(result.id)}/stop`;
       void fetch(path,{method:'POST',credentials:'same-origin',headers:scHeaders(),body:'{}'}).catch(()=>{});return;
@@ -218,6 +233,8 @@ async function initializeServerScanLink(){
     if(c.pickUsers){
       sc('server-camera-user-panel').hidden=false;
       sc('server-camera-user-list').innerHTML=serverCameraUserChoices(data.accounts||[]);
+      sc('server-camera-location-panel').hidden=false;
+      sc('server-camera-location-list').innerHTML=serverCameraLocationChoices(data.locations||[]);
       sc('server-camera-concurrency').textContent=`最多 ${data.concurrency||1} 人并发`;
     }
     scMessage(c.pickUsers?'请先勾选本次需要签到的用户，再点击开始扫描。':'入口已领取。点击开始扫描，画面发送服务器；在下方查看签到结果。');renderServerCameraState();
@@ -229,8 +246,7 @@ async function initializeServerScanLink(){
   }catch(error){c.phase='ended';scMessage(error.message);renderServerCameraState();}
 }
 document.addEventListener('click',async event=>{
-  const button=event.target.closest('#server-camera-start,#server-camera-stop,#server-camera-result,#server-camera-select-all');if(!button||button.disabled)return;
-  if(button.id==='server-camera-select-all')selectAllServerCameraUsers();
+  const button=event.target.closest('#server-camera-start,#server-camera-stop,#server-camera-result');if(!button||button.disabled)return;
   if(button.id==='server-camera-start')void startServerCamera();
   if(button.id==='server-camera-stop'){
     const stopping=serverCamera.runId||serverCamera.capability?scRequest('stop').catch(()=>null):Promise.resolve();
@@ -241,6 +257,16 @@ document.addEventListener('click',async event=>{
   if(button.id==='server-camera-result')void viewServerCameraResult();
 });
 document.addEventListener('change',event=>{
+  if(event.target.id==='server-camera-select-all'){
+    const c=serverCamera;
+    if(c.busy||c.phase==='running'||(c.capability&&(!c.csrf||c.phase==='ended')))return;
+    if(event.target.checked){c.manualUsers=new Set(selectedServerCameraUsers());selectAllServerCameraUsers();}
+    else{
+      document.querySelectorAll('[name="server-camera-user"]').forEach(input=>{input.checked=!input.disabled&&Boolean(c.manualUsers?.has(input.value));});
+      renderServerCameraState();
+    }
+  }
+  if(event.target.id==='server-camera-report-location')renderServerCameraState();
   if(event.target.name==='server-camera-user')renderServerCameraState();
 });
 document.addEventListener('input',event=>{

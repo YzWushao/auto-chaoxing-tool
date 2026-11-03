@@ -156,7 +156,7 @@ def test_camera_forwards_only_saved_location(browser,monkeypatch):
     seen=[]
     monkeypatch.setattr(FakeClient,'sign',lambda c,a,p,n:seen.append(p) or '成功')
     result=browser.send(f"/accounts/{account['id']}/camera-sign",{'qr':QR,'location':{'school':'测试学校','name':'A教学楼'}})
-    assert result.status_code==200 and 'latitude' in seen[0] and seen[0]['address']=='测试学校 · A教学楼'
+    assert result.status_code==200 and 'latitude' in seen[0] and seen[0]['address']=='测试学校'
 
 
 def test_parallel_users_keep_separate_challenges(browser,app,monkeypatch):

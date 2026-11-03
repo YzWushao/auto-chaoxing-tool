@@ -22,6 +22,7 @@ from .qq_batch import ALL_SELECTIONS, BatchConversation, selection
 from .sign_images import qq_picture, ImageReadError, ImageStream
 from .scan_links import validate_scan_base_url
 from . import qq_intent
+from .location_presets import school_points, resolve_point
 
 DEFAULT = {'enabled': False, 'ws_url': '', 'token': '', 'allowed_qqs': [], 'scan_base_url': '', **qq_intent.DEFAULT}
 KINDS = {'normal': '普通', 'qr': '二维码', 'location': '位置', 'gesture': '手势（请用网页）', 'code': '签到码（请用网页）'}
@@ -339,7 +340,7 @@ class SignConversation(BatchConversation):
                         self.send(qq, '请上传本次签到二维码图片。收到后会本地解码并提交，平台结果会回复到这里；回复“取消”可结束。' + self.scan_entry(qq, state, [item]))
                         return
                     if item['kind'] == 'location':
-                        choices = [dict(p, school=s['school']) for s in self.store.location_presets(self.owner) for p in s['points']]
+                        choices = school_points(self.store.location_presets(self.owner))
                         if not choices:
                             self.send(qq, '没有已保存的预设点位，请先到设置 → 预设点位添加，再重新选择活动。')
                             return
@@ -348,10 +349,10 @@ class SignConversation(BatchConversation):
                         return
                     supplied = {'kind': 'normal'}
                 else:
-                    latest = next((p for s in self.store.location_presets(self.owner) if s['school'] == item['school'] for p in s['points'] if p['name'] == item['name']), None)
+                    latest = resolve_point(self.store, self.owner, {'school':item['school'], 'name':item['name']})
                     if latest is None or any(latest.get(k) != item.get(k) for k in ('longitude', 'latitude', 'address', 'coordinate_system')):
                         raise ValueError('预设点位已被修改或删除，请重新发送“签到”')
-                    supplied = {'kind': 'location', **location_parameters(latest)}
+                    supplied = {'kind': 'location', **location_parameters(latest), 'location_preset':{'school':item['school'],'name':item['name']}}
             supplied.update(activity_id=state['activity_id'], source=state.get('source','course'), _detected_kind=supplied['kind'])
             result = self.signing.submit(state['owner'], state['account_id'], supplied)
             self.revoke_scan(qq)

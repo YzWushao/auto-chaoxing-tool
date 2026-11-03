@@ -4,6 +4,7 @@ import time
 
 from .chaoxing import CaptchaRequired, PlatformError, SessionExpired, SignRequirement
 from .sign_coordinates import location_parameters
+from .location_presets import school_points, resolve_point
 from .sign_images import qq_picture
 
 ALL_SELECTIONS = {'全选', '全部', '一键全选', '全部选择'}
@@ -186,7 +187,7 @@ class BatchConversation:
                 self.send(qq, '请上传本活动的二维码图片，将为以上所选用户依次提交；仅重试未成功用户。'+
                           '\n回复“跳过”处理下一项，回复“取消”结束。'+self.batch_scan_entry(qq, group))
                 return
-            points = [dict(p,school=s['school']) for s in self.store.location_presets(self.owner) for p in s['points']]
+            points = school_points(self.store.location_presets(self.owner))
             if not points:
                 for target in targets:
                     self.batch_record(state, target, 'skipped', '没有已保存的预设点位，请到设置 → 预设点位添加')
@@ -233,9 +234,10 @@ class BatchConversation:
             if images or not re.fullmatch(r'[0-9]{1,8}',text) or not 1<=int(text)<=len(state['choices']):
                 raise ValueError('位置请选择一个有效序号；回复“跳过”可继续')
             item = state['choices'][int(text)-1]
-            point = next((p for s in self.store.location_presets(self.owner) if s['school']==item['school'] for p in s['points'] if p['name']==item['name']),None)
+            reference = {'school':item['school'],'name':item['name']}
+            point = resolve_point(self.store, self.owner, reference)
             if point is None or any(point.get(k)!=item.get(k) for k in ('longitude','latitude','address','coordinate_system')):
                 raise ValueError('预设点位已被修改或删除，请重新发送“签到”')
-            if not self.batch_submit(qq, state, {'kind':'location',**location_parameters(point)}):
+            if not self.batch_submit(qq, state, {'kind':'location',**location_parameters(point),'location_preset':reference}):
                 return
         self.batch_advance(qq, state)

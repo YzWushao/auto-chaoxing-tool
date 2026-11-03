@@ -55,12 +55,11 @@ class CameraSignService:
             if location:
                 if not isinstance(location, dict) or set(location) != {'school', 'name'} or not all(isinstance(v, str) for v in location.values()):
                     raise ValueError('预设位置选择无效')
-                point = next((p for s in self.signing.store.location_presets(self.signing.preference_owner)
-                              if s['school'] == location['school'] for p in s['points'] if p['name'] == location['name']), None)
-                if not point:
-                    raise ValueError('预设点位已变更或移除，请重新选择')
+                from .location_presets import resolve_point
+                point = resolve_point(self.signing.store, self.signing.preference_owner, location)
                 from .sign_coordinates import location_parameters
                 parameters.update(location_parameters(point))
+                parameters['location_preset'] = location
             try:
                 result = self.signing.submit(owner, account_id, parameters)
             except SignRequirement as error:

@@ -6,7 +6,7 @@ const MapAddressLookup=(()=>{
   function queue(context,point,force=false){
     cancel(context);
     const preset=context==='preset',field=$(preset?'#edit-point-address':'#sign-address');
-    if(!field)return;
+    if(!field||field.readOnly)return;
     const auto=context+'MapAddress',status=preset?presetMapStatus:signMapStatus;
     const generated=/^地图选点[（(].*[）)]$/.test(field.value);
     if(!force&&field.value&&field.value!==state[auto]&&!generated)return;

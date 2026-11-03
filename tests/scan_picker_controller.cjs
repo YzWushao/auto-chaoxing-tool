@@ -1,13 +1,14 @@
 const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 const elements={},events={},requests=[],pending=[],tracks=[],choices=[];
+let locationSelection=null;
 const el=id=>elements[id]??={disabled:false,hidden:true,textContent:'',innerHTML:'',dataset:{},readyState:4,videoWidth:640,videoHeight:480,
   play:async()=>{},pause(){},setAttribute(){},removeAttribute(){},querySelector:()=>({setAttribute(){}})};
 const blob={size:900,type:'image/jpeg'};
 const ctx=vm.createContext({console,Promise,AbortController,JSON,Map,Set,Date,QRVision:require('../web/qr-vision.js'),performance:{now:()=>1000},
   location:{hash:'#'+'a'.repeat(43),pathname:'/scan'},history:{replaceState(){ctx.location.hash='';}},
   window:{isSecureContext:true,addEventListener:(n,f)=>events[n]=f},
-  document:{hidden:false,getElementById:el,querySelector:()=>({}),querySelectorAll:s=>s.includes(':checked')?choices.filter(a=>a.checked):choices,
+  document:{hidden:false,getElementById:el,querySelector:s=>s.includes('server-camera-location')?locationSelection:{},querySelectorAll:s=>s.includes(':checked')?choices.filter(a=>a.checked):choices,
     addEventListener:(n,f)=>events['document:'+n]=f,createElement:()=>({getContext:()=>({drawImage(){}}),toBlob:fn=>fn(blob)})},
   navigator:{mediaDevices:{getUserMedia:async()=>{const track={stop(){this.stopped=true},addEventListener(){}};tracks.push(track);return {getTracks:()=>[track],getVideoTracks:()=>[track]};}}},
   setInterval:()=>1,clearInterval(){},setTimeout:()=>1,clearTimeout(){},
@@ -24,7 +25,17 @@ run(fs.readFileSync('web/server-camera.js','utf8'));
   {value:'expired-user',checked:false,disabled:true,dataset:{unavailable:'true'}});
  run('selectAllServerCameraUsers()');assert.equal(choices[0].checked,true);assert.equal(choices[1].checked,true);
  assert.equal(choices[2].checked,false,'Expired users must not be selected');assert.equal(requests.length,1,'Select-all must not sign or start a camera');
- choices[0].checked=false;
+ choices[0].checked=false;choices[1].checked=false;
+ const all=el('server-camera-select-all');all.id='server-camera-select-all';all.checked=true;
+ events['document:change']({target:all});assert.equal(el('server-camera-user-list').hidden,true);assert.equal(choices[0].checked,true);
+ all.checked=false;events['document:change']({target:all});assert.equal(el('server-camera-user-list').hidden,false);assert.equal(choices[0].checked,false);
+ choices[1].checked=true;
+ const report=el('server-camera-report-location');report.id='server-camera-report-location';report.checked=true;
+ events['document:change']({target:report});assert.equal(el('server-camera-location-list').hidden,false);
+ assert.throws(()=>run('selectedServerCameraLocation()'),/选择一个点位/);
+ locationSelection={value:'opaque-location'};assert.equal(run('selectedServerCameraLocation()'),'opaque-location');
+ report.checked=false;events['document:change']({target:report});assert.equal(el('server-camera-location-list').hidden,true);
+ assert.equal(run('selectedServerCameraLocation()'),null,'Hidden location must not be sent');
  events['document:change']({target:{name:'server-camera-user'}});assert.equal(el('server-camera-start').disabled,false);
  const starting=run('startServerCamera()');await flush();
  assert.equal(tracks.length,1);assert.deepEqual(JSON.parse(requests[1].body),{account_ids:['opaque-b']});

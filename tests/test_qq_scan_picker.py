@@ -105,3 +105,35 @@ def test_picker_expiry_revoke_origin_and_exit_before_start(grant):
 
 def test_new_picker_frontend_requires_selection_and_sends_only_aliases():
     run_node("require('./tests/scan_picker_controller.cjs')")
+
+
+def test_picker_location_alias_uses_latest_school_position(grant,browser,monkeypatch):
+    browser.send('/location-presets',{'config':{'school':'测试学校','address':'学校最初位置','coordinate_system':'bd09',
+        'points':[{'name':'A楼','longitude':116.2,'latitude':40.2,'address':'不应上报的点位说明'}]}})
+    client,headers,result=picker(grant)
+    location=result.json['locations'][0]
+    assert set(location)=={'id','school','name','address'} and location['address']=='学校最初位置'
+    assert len(location['id'])==16
+    aliases=[result.json['accounts'][0]['id']]
+    assert client.post('/scan-api/start',json={'account_ids':aliases,'location':{'school':'测试学校','name':'A楼'}},headers=headers).status_code==400
+    start=client.post('/scan-api/start',json={'account_ids':aliases,'input':'native','location':location['id']},headers=headers)
+    assert start.status_code==200
+    assert client.post('/scan-api/start',json={'account_ids':aliases,'input':'native'},headers=headers).status_code==400
+    browser.send('/location-presets/school',{'name':'测试学校','original':'测试学校','address':'全校统一新位置'},'PUT')
+    seen=[]
+    monkeypatch.setattr(FakeClient,'sign',lambda self,activity,params,name:seen.append(params) or '离线成功')
+    client.post('/scan-api/qr',json={'qr':QR},headers=headers)
+    final=wait_for(lambda:client.get('/scan-api/status',headers=headers),lambda r:r.status_code==200 and r.json.get('terminal'))
+    assert final.json['state']=='completed' and seen[0]['address']=='全校统一新位置'
+    assert seen[0]['longitude']=='116.200000' and seen[0]['latitude']=='40.200000'
+
+
+def test_picker_location_can_be_omitted_and_removed_points_cannot_be_used(grant,browser):
+    browser.send('/location-presets',{'config':{'school':'测试学校','address':'学校位置','coordinate_system':'bd09',
+        'points':[{'name':'A楼','longitude':116.2,'latitude':40.2}]}})
+    client,headers,result=picker(grant);alias=result.json['accounts'][0]['id'];location=result.json['locations'][0]['id']
+    browser.send('/location-presets/point',{'school':'测试学校','name':'A楼'},'DELETE')
+    assert client.post('/scan-api/start',json={'account_ids':[alias],'location':location},headers=headers).status_code==400
+    start=client.post('/scan-api/start',json={'account_ids':[alias]},headers=headers)
+    assert start.status_code==200
+    assert grant['app'].extensions['camera_streams'].runs[start.json['id']].location is None

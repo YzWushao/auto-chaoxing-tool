@@ -511,12 +511,15 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.put('/api/location-presets/school')
     def location_school_save():
         data=body()
-        if set(data)-{'name','original'} or not isinstance(data.get('name'),str) or not 1 <= len(data['name'].strip()) <= 100:
+        if set(data)-{'name','original','address'} or not isinstance(data.get('name'),str) or not 1 <= len(data['name'].strip()) <= 100:
             raise ValueError('学校名称需要 1～100 个字符')
+        address=data.get('address')
+        if 'address' in data and (not isinstance(address,str) or not 1 <= len(address.strip()) <= 200):
+            raise ValueError('学校位置需要 1～200 个字符')
         original=data.get('original')
         if original is not None and (not isinstance(original,str) or not 1 <= len(original) <= 100):
             raise ValueError('原学校名称无效')
-        store.save_location_school(g.admin['owner'],data['name'].strip(),original)
+        store.save_location_school(g.admin['owner'],data['name'].strip(),original,address.strip() if address is not None else None)
         return jsonify(location_presets=store.location_presets(g.admin['owner']))
 
     @app.delete('/api/location-presets/school')

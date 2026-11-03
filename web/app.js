@@ -302,6 +302,7 @@ function locationPresetsHTML() {
   return presetsMapHTML();
 }
 function presetSchoolChanged() {
+  const form=$('#sign-form'),address=$('#sign-address');if(form){delete form.dataset.locationSchool;delete form.dataset.locationPoint;}if(address?.readOnly){address.readOnly=false;address.value='';}
   const value=$('#preset-school').value, school=value===''?null:state.location_presets[Number(value)];
   const select=$('#preset-point'); select.disabled=!school;
   select.innerHTML='<option value="">'+(school?'请选择教学楼 / 教学区':'先选择学校')+'</option>'+(school?school.points.map((p,i)=>`<option value="${i}">${esc(p.name)}</option>`).join(''):'');
@@ -334,7 +335,8 @@ function applyLocationPreset() {
   const coordinateSystem=preset.coordinate_system||school.coordinate_system;
   $('#sign-coordinate-system').value=coordinateSystem;
   const p=SignMap.toWGS84(SignMap.point(preset.longitude,preset.latitude),coordinateSystem);
-  $('#sign-address').value=preset.address; state.signMapAddress='';
+  $('#sign-address').value=school.address||school.school; $('#sign-address').readOnly=true; state.signMapAddress='';
+  const form=$('#sign-form');form.dataset.locationSchool=school.school;form.dataset.locationPoint=preset.name;
   if(state.signMap) state.signMap.center(p); else fillSignMap(p);
   $('#presets-message').textContent=`已应用：${school.school} / ${preset.name}（${coordinateSystem.toUpperCase()}）。请核对本人实际位置；尚未提交签到。`;
 }
@@ -469,7 +471,7 @@ document.addEventListener('click', async event=>{
   if(action==='job-log') { state.logJob=id; state.logAfter=0; navigate('study'); if(state.page==='study') render(); return; }
   if(action==='courses-toggle') { const list=state.courses[state.active]||[]; const selected=state.selection[state.active]; if(!selected) return; const all=list.length&&list.every(c=>selected.has(c.key)); list.forEach(c=>all?selected.delete(c.key):selected.add(c.key)); $('#course-list').innerHTML=coursesHTML($('#course-search').value); $('#selection-count').textContent=selected.size; return; }
   await busy(target,async()=>{
-    if(action==='school-inline-create') { const name=$('#inline-school-name').value.trim(),data=await api('/location-presets/school','PUT',{name}); presetsUpdated(data.location_presets,name); toast('学校已创建，可以保存子点位'); }
+    if(action==='school-inline-create') { const name=$('#inline-school-name').value.trim(),address=$('#inline-school-address').value.trim();if(!address)throw new Error('请填写学校位置');const data=await api('/location-presets/school','PUT',{name,address}); presetsUpdated(data.location_presets,name); toast('学校已创建，可以保存子点位'); }
     if(action==='school-delete') { const school=state.location_presets[Number(target.dataset.school)]; if(!confirm(`删除学校“${school.school}”及其 ${school.points.length} 个子点位？请先导出 JSON 备份。`)) return; const data=await api('/location-presets/school','DELETE',{name:school.school}); presetsUpdated(data.location_presets); toast('学校及其子点位已删除，可导入此前导出的 JSON 备份恢复'); }
     if(action==='presets-save-current') await saveCurrentPoint();
     if(action==='preset-delete') { const school=state.location_presets[Number(target.dataset.school)], point=school.points[Number(target.dataset.point)]; if(!confirm(`删除“${school.school} / ${point.name}”？删除后可通过之前导出的 JSON 备份恢复。`)) return; const data=await api('/location-presets/point','DELETE',{school:school.school,name:point.name}); presetsUpdated(data.location_presets); toast('点位已删除；可导入此前导出的 JSON 备份恢复'); }
@@ -486,7 +488,7 @@ document.addEventListener('change',event=>{
   if(event.target.id==='study-mode') $('#timing-notice').textContent=timingNotice(event.target.value==='duration');
   if(event.target.dataset.course) { const set=state.selection[state.active]; if(event.target.checked) set.add(event.target.dataset.course); else set.delete(event.target.dataset.course); $('#selection-count').textContent=set.size; }
   if(event.target.id==='inherit-api') $('#inherit-notice').classList.toggle('hidden',!event.target.checked);
-  if(event.target.id==='sign-kind') { cancelSignQR(); closeSignMap(); state.signMapPoint=null; state.signMapAddress=''; $('#sign-extra-location')?.remove();$('#sign-fields').innerHTML=signFields(event.target.value);applyRequiredSignLocation($('#sign-form')); }
+  if(event.target.id==='sign-kind') { const form=$('#sign-form');delete form.dataset.locationSchool;delete form.dataset.locationPoint;cancelSignQR(); closeSignMap(); state.signMapPoint=null; state.signMapAddress=''; $('#sign-extra-location')?.remove();$('#sign-fields').innerHTML=signFields(event.target.value);applyRequiredSignLocation($('#sign-form')); }
   if(event.target.id==='sign-coordinate-system') { if(state.signMapPoint) fillSignMap(state.signMapPoint); else signMapStatus('坐标系已切换，手填数值保持不变；请确认手填坐标属于所选坐标系。'); }
   if(event.target.id==='sign-qr-file') loadSignQR(event.target.files[0]);
   if(event.target.id==='school-presets-file') importLocationPresets(event.target.files[0]);
@@ -518,7 +520,7 @@ document.addEventListener('submit',async event=>{
     }
     if(form.id==='global-api-form') { const data=await api('/settings','PUT',{api:readApi(form)}); state.settings=data; toast('全局 API 配置已保存'); render(); }
     if(form.id==='study-config-form') { const study=Object.fromEntries($$('[name^="study."]',form).map(el=>[el.name.slice(6),el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value])); const data=await api(`/accounts/${accountId}/config`,'PUT',{study,inherit_api:$('#inherit-api').checked,api:readApi(form)}); const a=state.accounts.find(a=>a.id===accountId); if(a) a.config=data.config; toast('用户刷课配置已保存'); render(); }
-    if(form.id==='sign-form') { if(signVerifications.has('sign')){$('#sign-error').textContent='请先完成当前滑块验证，或取消验证后重新提交。';return;}const payload=Object.fromEntries(new FormData(form)); payload.activity_id=form.dataset.activity;if(form.dataset.verification)payload.verification_id=form.dataset.verification;if(form.dataset.face)payload.face_id=form.dataset.face;try{ const data=await api(`/accounts/${form.dataset.account}/sign`,'POST',payload); const activity=state.activities[signActivityKey(form.dataset.account,form.dataset.source)]?.find(a=>a.id===payload.activity_id); if(activity){activity.signed=true;if(data.phase)activity.phase=data.phase;}clearSignVerification('sign',false);$('#modal').close(); toast(data.message); render(); }catch(error){ $('#sign-error').textContent=error.message;if(error.status===400){delete form.dataset.face;delete form.dataset.verification;}if(error.code==='verification_required'&&error.verification){delete form.dataset.verification;showSignVerification('sign',form.dataset.account,error.verification);return;}if(['face_required','official_face_required'].includes(error.code)){delete form.dataset.face;showSignFace('sign',form.dataset.account,form.dataset.activity,form.dataset.source);return;}throw error; } }
+    if(form.id==='sign-form') { if(signVerifications.has('sign')){$('#sign-error').textContent='请先完成当前滑块验证，或取消验证后重新提交。';return;}const payload=Object.fromEntries(new FormData(form)); payload.activity_id=form.dataset.activity;if(form.dataset.locationSchool&&form.dataset.locationPoint)payload.location_preset={school:form.dataset.locationSchool,name:form.dataset.locationPoint};if(form.dataset.verification)payload.verification_id=form.dataset.verification;if(form.dataset.face)payload.face_id=form.dataset.face;try{ const data=await api(`/accounts/${form.dataset.account}/sign`,'POST',payload); const activity=state.activities[signActivityKey(form.dataset.account,form.dataset.source)]?.find(a=>a.id===payload.activity_id); if(activity){activity.signed=true;if(data.phase)activity.phase=data.phase;}clearSignVerification('sign',false);$('#modal').close(); toast(data.message); render(); }catch(error){ $('#sign-error').textContent=error.message;if(error.status===400){delete form.dataset.face;delete form.dataset.verification;}if(error.code==='verification_required'&&error.verification){delete form.dataset.verification;showSignVerification('sign',form.dataset.account,error.verification);return;}if(['face_required','official_face_required'].includes(error.code)){delete form.dataset.face;showSignFace('sign',form.dataset.account,form.dataset.activity,form.dataset.source);return;}throw error; } }
     if(form.id==='job-input-form') { await api(`/jobs/${form.dataset.id}/input`,'POST',{answer:form.elements.answer.value}); toast('回复已发送'); await refreshLive(); }
   },'正在保存 / 提交…');
 });

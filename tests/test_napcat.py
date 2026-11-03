@@ -106,7 +106,7 @@ def test_unresolved_verification_points_qq_to_web_without_leaking_tokens(chat,mo
 
 
 def test_location_uses_saved_point_selected_by_number(app, browser, chat):
-    browser.send('/location-presets', {'config': {'school': '离线学校', 'coordinate_system': 'bd09', 'points': [
+    browser.send('/location-presets', {'config': {'school': '离线学校', 'address':'离线学校统一地址', 'coordinate_system': 'bd09', 'points': [
         {'name': '教学楼甲', 'longitude': 116.1, 'latitude': 40.1, 'address': '离线地址甲'},
         {'name': '教学楼乙', 'longitude': 116.2, 'latitude': 40.2, 'address': '离线地址乙'}]}})
     say = chat['message']
@@ -115,7 +115,7 @@ def test_location_uses_saved_point_selected_by_number(app, browser, chat):
     assert not chat['calls']
     say('2')
     supplied = chat['calls'][0][1]
-    assert supplied['kind'] == 'location' and supplied['longitude'] == '116.200000' and supplied['address'] == '离线地址乙'
+    assert supplied['kind'] == 'location' and supplied['longitude'] == '116.200000' and supplied['address'] == '离线学校统一地址'
     assert app.extensions['store'].signed(app.extensions['napcat'].owner, chat['accounts'][0]['id'], '903')
 
 

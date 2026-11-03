@@ -60,6 +60,10 @@ class SignService:
             return [a | {'signed': self.store.signed(owner, account_id, a['id'])} for a in merged.values()]
 
     def submit(self, owner, account_id, supplied):
+        supplied = dict(supplied)
+        if 'location_preset' in supplied:
+            from .location_presets import resolve_point
+            supplied['address'] = resolve_point(self.store, self.preference_owner, supplied['location_preset'])['address']
         activity_id = str(supplied.get('activity_id', ''))
         with self.locks[account_id]:
             value = self.account(owner, account_id)
@@ -91,7 +95,7 @@ class SignService:
                 if supplied.get('_detected_kind') and (live['kind'] != supplied['_detected_kind'] or live.get('photo')
                         or selected['kind'] != supplied['_detected_kind']):
                     raise ValueError('签到方式已变化，请重新发送“签到”并选择活动')
-                parameters = {k: v for k, v in supplied.items() if not k.startswith('_') and k not in {'source', 'verification_id', 'face_id'}}
+                parameters = {k: v for k, v in supplied.items() if not k.startswith('_') and k not in {'source', 'verification_id', 'face_id', 'location_preset'}}
                 if proof:
                     parameters['_verification'] = proof
                 if face:

@@ -19,5 +19,6 @@ const fire=()=>{const [id,fn]=timers.entries().next().value;timers.delete(id);vo
  field.value='地图选点（116, 30）';point(120);fire();run("MapAddressLookup.cancel('sign')");pending[3]({address:'已关闭的地址'});await flush();assert.equal(field.value,'');
  provider.value='osm';point(121);assert.equal(timers.size,0);assert(messages.at(-1).includes('开启'));
  provider.value='amap';point(122);fire();pending[4]({address:''});await flush();assert.equal(field.value,'');assert(messages.at(-1).includes('手动填写'));
+ field.value='统一学校位置';field.readOnly=true;point(123);assert.equal(timers.size,0);assert.equal(field.value,'统一学校位置');
  console.log('Latest point, cancellation, opt-in and manual address preservation verified');
 })().catch(e=>{console.error(e);process.exitCode=1;});

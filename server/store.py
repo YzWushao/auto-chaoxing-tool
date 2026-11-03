@@ -289,8 +289,9 @@ class Store(DeviceBindings):
             db.execute("DELETE FROM events WHERE owner=? AND id NOT IN (SELECT id FROM events WHERE owner=? ORDER BY id DESC LIMIT 500)", (owner, owner))
 
     def location_presets(self, owner):
+        from .location_presets import validate_school
         with self.connect() as db:
-            return [self.unseal(row['value']) for row in db.execute('SELECT value FROM location_presets WHERE owner=? ORDER BY school', (owner,))]
+            return [validate_school(self.unseal(row['value'])) for row in db.execute('SELECT value FROM location_presets WHERE owner=? ORDER BY school', (owner,))]
 
     def import_location_presets(self, owner, values, replace=False):
         with self.connect() as db:
@@ -303,13 +304,14 @@ class Store(DeviceBindings):
                            (owner, value['school'], self.seal(value)))
 
     def save_location_point(self, owner, school, point, original=None):
+        from .location_presets import validate_school
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             def read(name):
                 row = db.execute('SELECT value FROM location_presets WHERE owner=? AND school=?', (owner, name)).fetchone()
                 if not row:
                     raise ValueError('学校不存在，请先新建学校，再添加点位')
-                return self.unseal(row['value'])
+                return validate_school(self.unseal(row['value']))
             target = read(school)
             if any(p['name'] == point['name'] for p in target['points']) and original != {'school':school,'name':point['name']}:
                 raise ValueError('该学校已存在同名点位，请使用编辑功能或更换名称')
@@ -335,19 +337,23 @@ class Store(DeviceBindings):
             value['points'] = [p for p in value['points'] if p['name'] != name]
             db.execute('UPDATE location_presets SET value=? WHERE owner=? AND school=?', (self.seal(value),owner,school))
 
-    def save_location_school(self, owner, name, original=None):
+    def save_location_school(self, owner, name, original=None, address=None):
+        from .location_presets import validate_school
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             exists=db.execute('SELECT 1 FROM location_presets WHERE owner=? AND school=?',(owner,name)).fetchone()
             if exists and name != original:
                 raise ValueError('已存在同名学校')
-            value={'version':1,'school':name,'coordinate_system':'bd09','points':[]}
+            value={'version':1,'school':name,'address':name,'coordinate_system':'bd09','points':[]}
             if original:
                 row=db.execute('SELECT value FROM location_presets WHERE owner=? AND school=?',(owner,original)).fetchone()
                 if not row:
                     raise KeyError('school')
                 value=self.unseal(row['value']); value['school']=name
                 db.execute('DELETE FROM location_presets WHERE owner=? AND school=?',(owner,original))
+            if address is not None:
+                value['address']=address
+            value=validate_school(value)
             db.execute('INSERT INTO location_presets VALUES (?,?,?)',(owner,name,self.seal(value)))
 
     def delete_location_school(self, owner, name):

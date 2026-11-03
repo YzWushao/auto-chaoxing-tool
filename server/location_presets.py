@@ -5,8 +5,8 @@ SYSTEMS = {'bd09', 'gcj02', 'wgs84'}
 
 
 def validate_school(value):
-    if not isinstance(value, dict) or set(value) - {'version', 'school', 'coordinate_system', 'points'}:
-        raise ValueError('配置只支持 version、school、coordinate_system 和 points 字段')
+    if not isinstance(value, dict) or set(value) - {'version', 'school', 'address', 'coordinate_system', 'points'}:
+        raise ValueError('配置只支持 version、school、address、coordinate_system 和 points 字段')
     if type(value.get('version', 1)) is not int or value.get('version', 1) != 1:
         raise ValueError('不支持的点位配置版本，需要 version: 1')
     def text(raw, label, maximum):
@@ -14,6 +14,7 @@ def validate_school(value):
             raise ValueError(f'{label}需要为 1～{maximum} 个字符的文本')
         return raw.strip()
     school = text(value.get('school'), '学校名称', 100)
+    address = text(value.get('address', school), '学校位置', 200)
     system = value.get('coordinate_system')
     if not isinstance(system, str) or system not in SYSTEMS:
         raise ValueError('coordinate_system 必须为 bd09、gcj02 或 wgs84，不能混用坐标系')
@@ -40,12 +41,29 @@ def validate_school(value):
             if not math.isfinite(number) or abs(number) > limit:
                 raise ValueError(f'{name} 的 {key} 超出范围')
             coords[key] = number
-        address = text(item.get('address', f'{school} · {name}'), '位置说明', 200)
+        # Accept legacy JSON without retaining or submitting child descriptions.
+        if 'address' in item:
+            text(item['address'], '旧点位说明', 200)
         point_system = item.get('coordinate_system', system)
         if not isinstance(point_system, str) or point_system not in SYSTEMS:
             raise ValueError('点位坐标系必须为 bd09、gcj02 或 wgs84')
-        result.append({'name': name, **coords, 'address': address, 'coordinate_system': point_system})
-    return {'version': 1, 'school': school, 'coordinate_system': system, 'points': result}
+        result.append({'name': name, **coords, 'coordinate_system': point_system})
+    return {'version': 1, 'school': school, 'address': address, 'coordinate_system': system, 'points': result}
+
+
+def school_points(schools):
+    return [dict(p, school=s['school'], address=s['address']) for s in schools for p in s['points']]
+
+
+def resolve_point(store, owner, reference):
+    if (not isinstance(reference, dict) or set(reference) != {'school', 'name'}
+            or not all(isinstance(v, str) and v.strip() and len(v) <= 100 for v in reference.values())):
+        raise ValueError('预设点位选择无效')
+    point = next((p for p in school_points(store.location_presets(owner))
+                  if p['school'] == reference['school'] and p['name'] == reference['name']), None)
+    if point is None:
+        raise ValueError('学校或预设点位已变更或移除，请重新选择')
+    return point
 
 
 def validate_import(value):

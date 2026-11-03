@@ -10,3 +10,16 @@
 .server-camera-zoom .note,.server-camera-zoom .setting-note{margin:0;font-size:12px;line-height:1.6;color:#898295}
 .camera-user-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
 .camera-user-actions button{white-space:nowrap}
+.camera-switch{display:inline-flex;align-items:center;gap:9px;margin:0;font-size:13px;cursor:pointer;color:#595368}
+.camera-switch input[type=checkbox]{appearance:none;width:36px;height:21px;border:0;border-radius:14px;background:#d5d1e0;position:relative;padding:0;margin:0;cursor:pointer;flex-shrink:0}
+.camera-switch input[type=checkbox]::after{content:"";position:absolute;left:3px;top:3px;width:15px;height:15px;border-radius:50%;background:white;transition:transform .15s}
+.camera-switch input[type=checkbox]:checked{background:#7354d8}
+.camera-switch input[type=checkbox]:checked::after{transform:translateX(15px)}
+.camera-switch input:disabled{opacity:.5;cursor:default}
+.camera-switch input:focus-visible{outline:2px solid #7354d8;outline-offset:3px}
+#server-camera-root #server-camera-user-list{max-height:none;overflow:visible}
+#server-camera-root #server-camera-user-list[hidden],#server-camera-location-list[hidden]{display:none}
+.camera-location-list{display:grid;grid-template-columns:1fr;gap:10px;margin:14px 0;max-height:none;overflow:visible}
+.camera-location-list .camera-choice{align-items:flex-start}
+.camera-location-list input[type=radio]{width:16px;height:16px;accent-color:#7354d8;flex-shrink:0;margin-top:2px}
+#server-camera-location-panel{margin-top:20px}
