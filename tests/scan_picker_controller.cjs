@@ -17,8 +17,12 @@ const ctx=vm.createContext({console,Promise,AbortController,JSON,Map,Set,Date,QR
 const run=code=>vm.runInContext(code,ctx),respond=(i,data,status=200)=>pending[i]({ok:status<400,status,json:async()=>data});
 run(fs.readFileSync('web/server-camera.js','utf8'));
 (async()=>{
+ assert.equal(requests.length,0,'No data may be fetched before entering a code');
+ const verifying=run('verifyServerScanCode("12345678")');await flush();
+ assert.equal(requests[0].path,'/scan-api/verify');assert.deepEqual(JSON.parse(requests[0].body),{code:'12345678'});
  respond(0,{csrf:'test-csrf',select_users:true,remaining_seconds:300,concurrency:5,accounts:[
-  {id:'opaque-a',name:'测试甲',status:'active'},{id:'opaque-b',name:'测试乙',status:'active'}]});await flush();
+  {id:'opaque-a',name:'测试甲',status:'active'},{id:'opaque-b',name:'测试乙',status:'active'}]});await verifying;await flush();
+ assert.equal(el('scan-code-panel').hidden,true);assert.equal(el('server-camera-root').hidden,false);
  assert.equal(el('server-camera-user-panel').hidden,false);assert.match(el('server-camera-user-list').innerHTML,/测试甲/);
  assert.equal(el('server-camera-start').disabled,true);await run('startServerCamera()');assert.equal(tracks.length,0);
  choices.push({value:'opaque-a',checked:false,dataset:{}},{value:'opaque-b',checked:false,dataset:{}},
@@ -47,5 +51,15 @@ run(fs.readFileSync('web/server-camera.js','utf8'));
  assert.equal(tracks[0].stopped,true);assert.equal(el('server-camera-start').disabled,true);
  assert.match(el('server-camera-results').innerHTML,/测试乙/);assert(!el('server-camera-results').innerHTML.includes('测试甲'));
  assert(choices.every(a=>a.disabled));assert.equal(requests.length,3);
+ run('showServerScanCodeForm()');
+ assert.equal(el('scan-code-panel').hidden,false);assert.equal(el('server-camera-root').hidden,true);
+ assert.equal(el('server-camera-user-list').innerHTML,'');assert.equal(el('server-camera-location-list').innerHTML,'');
+ assert.equal(el('server-camera-results').innerHTML,'');assert.equal(run('serverCamera.csrf'),'');
+ await assert.rejects(run('verifyServerScanCode("１２３４５６７８")'),/8位纯数字/);assert.equal(requests.length,3);
+ const rejected=run('verifyServerScanCode("00000000")');respond(3,{error:'验证码无效'},410);
+ await assert.rejects(rejected,/验证码无效/);assert.equal(el('server-camera-root').hidden,true);assert.equal(tracks.length,1);
+ const replacement=run('verifyServerScanCode("98765432")');respond(4,{csrf:'next-csrf',remaining_seconds:200});await replacement;
+ assert.equal(el('scan-code-panel').hidden,true);assert.equal(el('server-camera-user-panel').hidden,true);
+ assert.equal(el('server-camera-location-panel').hidden,true);assert.equal(tracks.length,1,'Verification must never start the camera');
  console.log('Manual scoped user selection, JPEG path and result lifecycle verified');
 })().catch(e=>{console.error(e);process.exitCode=1;});

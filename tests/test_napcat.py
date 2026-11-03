@@ -3,6 +3,7 @@ import copy
 import io
 import json
 import queue
+import re
 import threading
 import time
 
@@ -390,7 +391,8 @@ def test_real_websocket_transport_routes_echo_and_private_events(app, browser, m
             assert manager.status()['state'] == 'connected'
             socket.send(json.dumps({'post_type': 'message', 'message_type': 'private', 'self_id': BOT, 'user_id': QQ, 'message_id': 1, 'time': time.time(), 'message': [{'type': 'text', 'data': {'text': '扫码签到'}}]}))
             response = replies.get(timeout=5)
-            assert '进入摄像头扫码签到' in response and 'https://scan.example.invalid/scan#' in response
+            assert '进入摄像头扫码签到' in response and 'https://scan.example.invalid/scan' in response and '/scan#' not in response
+            assert re.search(r'验证码：[0-9]{8}',response)
             assert '手动勾选' in response and not manager.conversation.sessions
         finally:
             manager.stop()

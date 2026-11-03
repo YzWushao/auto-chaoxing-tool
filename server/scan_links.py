@@ -1,9 +1,10 @@
-"""Short-lived, one-use QQ capabilities. Never grant a console session."""
+"""Fixed QQ scanner address, numeric codes and isolated temporary sessions."""
 import hashlib
 import hmac
 import secrets
 import threading
 import time
+from collections import deque
 from urllib.parse import urlsplit
 
 from flask import Blueprint, jsonify, request, send_from_directory
@@ -18,6 +19,10 @@ from .location_presets import school_points, resolve_point
 
 
 class ScanLinkExpired(Exception):
+    pass
+
+
+class ScanCodeRateLimit(Exception):
     pass
 
 
@@ -50,10 +55,15 @@ class ScanLinks:
         self.store, self.camera, self.settings = store, camera, settings
         self.lock = threading.RLock()
         self.tickets, self.sessions = {}, {}
+        self.codes, self.code_attempts = {}, {}
+        self.recent_codes = {}
+        self.code_global_attempts = deque()
+        self.code_secret = secrets.token_bytes(32)
 
     def _prune(self):
         now = time.monotonic()
-        for records in (self.tickets, self.sessions):
+        self.recent_codes = {k:v for k,v in self.recent_codes.items() if v>now}
+        for records in (self.tickets, self.codes, self.sessions):
             for key, entry in list(records.items()):
                 result_window = records is self.sessions and entry.get('stream_result_access') and entry['expires']+60 > now
                 if not result_window and (not entry['active'] or entry['expires'] <= now):
@@ -61,7 +71,7 @@ class ScanLinks:
 
     def revoke(self, qq):
         with self.lock:
-            for entry in (*self.tickets.values(), *self.sessions.values()):
+            for entry in (*self.tickets.values(), *self.codes.values(), *self.sessions.values()):
                 if entry['qq'] == qq:
                     entry['active'] = False
                     entry['stream_done'] = False
@@ -70,10 +80,43 @@ class ScanLinks:
 
     def revoke_all(self):
         with self.lock:
-            for entry in (*self.tickets.values(), *self.sessions.values()):
+            for entry in (*self.tickets.values(), *self.codes.values(), *self.sessions.values()):
                 entry['active'] = False
             self.tickets.clear()
+            self.codes.clear()
             self.sessions.clear()
+
+    def _code_key(self, value):
+        return hmac.new(self.code_secret,value.encode(),hashlib.sha256).hexdigest()
+
+    def _with_code(self, link):
+        if not link:
+            return None
+        parsed = urlsplit(link)
+        with self.lock:
+            entry = self.tickets.pop(digest(parsed.fragment),None)
+            self._alive(entry)
+            if len(self.recent_codes)>=4096:
+                raise ValueError('验证码生成过于频繁，请稍后重试')
+            for _ in range(32):
+                code = f'{secrets.randbelow(100000000):08d}'
+                key = self._code_key(code)
+                if key not in self.codes and key not in self.recent_codes:
+                    break
+            else:
+                raise ValueError('暂时无法生成新验证码，请重试')
+            self.codes[key] = entry
+            self.recent_codes[key] = entry['expires']
+        return {'url':link.partition('#')[0], 'code':code}
+
+    def issue_picker_code(self, qq):
+        return self._with_code(self.issue_picker(qq))
+
+    def issue_code(self, qq, owner, account_id, activities):
+        return self._with_code(self.issue(qq,owner,account_id,activities))
+
+    def issue_many_code(self, qq, targets):
+        return self._with_code(self.issue_many(qq,targets))
 
     def issue(self, qq, owner, account_id, activities):
         return self.issue_many(qq,[dict(owner=owner,account_id=account_id,activities=activities)])
@@ -117,7 +160,7 @@ class ScanLinks:
         owner,account_id = accounts[0]['owner'],accounts[0]['id']
         with self.lock:
             self._prune()
-            if len(self.tickets) + len(self.sessions) >= 128:
+            if len(self.tickets) + len(self.codes) + len(self.sessions) >= 128:
                 return None
             token = secrets.token_urlsafe(32)
             self.tickets[digest(token)] = dict(qq=qq, owner=owner, account_id=account_id, accounts=accounts, allowed=allowed,
@@ -145,11 +188,37 @@ class ScanLinks:
         with self.lock:
             self._prune()
             entry = self.tickets.pop(digest(token), None)
-            self._alive(entry)
-            cookie, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-            entry['csrf'] = csrf
-            self.sessions[digest(cookie)] = entry
-            return cookie, csrf, entry
+            return self._bind(entry)
+
+    def _bind(self, entry):
+        self._alive(entry)
+        cookie, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+        entry['csrf'] = csrf
+        self.sessions[digest(cookie)] = entry
+        return cookie, csrf, entry
+
+    def verify_code(self, code, client):
+        with self.lock:
+            self._prune()
+            now = time.monotonic()
+            while self.code_global_attempts and now-self.code_global_attempts[0]>=60:
+                self.code_global_attempts.popleft()
+            self.code_attempts = {k:v for k,v in self.code_attempts.items() if v and now-v[-1]<60}
+            client_key = self._code_key(str(client)[:200])
+            if client_key not in self.code_attempts and len(self.code_attempts)>=2048:
+                raise ScanCodeRateLimit()
+            attempts = self.code_attempts.setdefault(client_key,deque())
+            while attempts and now-attempts[0]>=60:
+                attempts.popleft()
+            if len(attempts)>=10 or len(self.code_global_attempts)>=60:
+                raise ScanCodeRateLimit()
+            attempts.append(now);self.code_global_attempts.append(now)
+            if not isinstance(code,str) or len(code)!=8 or any(c not in '0123456789' for c in code):
+                raise ScanLinkExpired()
+            entry = self.codes.pop(self._code_key(code),None)
+            result = self._bind(entry)
+            attempts.clear()
+            return result
 
     def authorize(self, cookie, csrf, allow_result=False):
         if not isinstance(cookie, str) or len(cookie) != 43 or not isinstance(csrf, str):
@@ -257,8 +326,15 @@ def install_scan_routes(app, links):
 
     @page.errorhandler(ScanLinkExpired)
     def expired(error):
-        response = jsonify(error='入口已领取、过期或失效，请回 QQ 重新获取。', code='expired')
+        response = jsonify(error='验证码已使用、过期或本次扫码已结束，请回 QQ 重新获取验证码。', code='expired')
         response.status_code = 410
+        return response
+
+    @page.errorhandler(ScanCodeRateLimit)
+    def code_throttled(error):
+        response = jsonify(error='验证码尝试过于频繁，请稍后重试。',code='rate_limited')
+        response.status_code = 429
+        response.headers['Retry-After'] = '60'
         return response
 
     @page.errorhandler(CameraRateLimit)
@@ -306,6 +382,20 @@ def install_scan_routes(app, links):
         response = jsonify(csrf=csrf, **links.status(record))
         response.set_cookie(cookie_name, cookie, max_age=links.ttl+60, httponly=True,
                             secure=app.config['SESSION_COOKIE_SECURE'], samesite='Strict', path='/scan-api')
+        return response
+
+    @page.post('/scan-api/verify')
+    def verify_code():
+        data = payload()
+        code = data.get('code') if set(data)=={'code'} else None
+        # Never trust caller-supplied forwarding headers for rate-limit identity.
+        try:
+            cookie, csrf, record = links.verify_code(code,request.remote_addr or 'unknown')
+        except ScanLinkExpired:
+            return jsonify(error='验证码错误、已使用或过期，请回 QQ 发送“扫码签到”获取新验证码。',code='expired'),410
+        response = jsonify(csrf=csrf,**links.status(record))
+        response.set_cookie(cookie_name,cookie,max_age=links.ttl+60,httponly=True,
+                            secure=app.config['SESSION_COOKIE_SECURE'],samesite='Strict',path='/scan-api')
         return response
 
     @page.get('/scan-api/session')

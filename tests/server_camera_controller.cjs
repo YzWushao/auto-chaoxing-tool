@@ -28,7 +28,10 @@ const run=code=>vm.runInContext(code,context);
 const respond=(i,data,status=200)=>pending[i].resolve({ok:status<400,status,json:async()=>data});
 (async()=>{
   assert.equal(tracks.length,0,'No automatic camera use');
-  respond(0,{csrf:'offline-csrf',remaining_seconds:300});await flush();
+  assert.equal(requests.length,0,'Fixed page must not claim credentials from its URL');
+  const verifying=run('verifyServerScanCode("12345678")');await flush();
+  assert.equal(requests[0].path,'/scan-api/verify');assert.deepEqual(JSON.parse(requests[0].body),{code:'12345678'});
+  respond(0,{csrf:'offline-csrf',remaining_seconds:300});await verifying;await flush();
   assert.equal(element('server-camera-start').disabled,false);
   const starting=run('startServerCamera()');await flush();
   assert.equal(tracks.length,1);assert.equal(requests[1].path,'/scan-api/start');

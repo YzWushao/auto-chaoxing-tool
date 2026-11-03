@@ -1,5 +1,6 @@
 """Batch consent, per-account isolation and mixed QQ workflows with fake platform calls."""
 import json
+import re
 import time
 from urllib.parse import urlsplit
 
@@ -193,9 +194,12 @@ def test_qq_batch_link_to_browser_completion_and_qq_continue(grant):
     say('签到');say('全选')
     conversation.scan_links=grant['links']
     say('2')
-    assert '一次性摄像头' in sent[-1]
-    token=sent[-1].split('/scan#')[1].split()[0]
-    client,headers,_=claim(grant,token)
+    assert '摄像头扫码入口' in sent[-1] and '/scan#' not in sent[-1]
+    code=re.search(r'验证码：([0-9]{8})',sent[-1])[1]
+    client=grant['app'].test_client()
+    verified=client.post('/scan-api/verify',json={'code':code},headers=HEADERS)
+    assert verified.status_code==200
+    headers={**HEADERS,'X-Scan-CSRF':verified.json['csrf']}
     assert client.post('/scan-api/start',json={'input':'native'},headers=headers).status_code==200
     client.post('/scan-api/qr',json={'qr':QR},headers=headers)
     wait_for(lambda:client.get('/scan-api/status',headers=headers),lambda r:r.status_code==200 and r.json.get('terminal'))

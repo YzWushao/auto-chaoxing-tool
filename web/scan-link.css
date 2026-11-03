@@ -7,3 +7,9 @@ body main{width:min(100% - 32px,1040px)}
 .status-bar h2{font-size:18px;color:#27283e;margin:0}
 [hidden]{display:none!important}
 @media(max-width:760px){.scan-camera-layout:has(#server-camera-user-panel:not([hidden])){grid-template-columns:1fr}#server-camera-user-panel .camera-choice-list{grid-template-columns:repeat(2,minmax(0,1fr));max-height:220px}}
+#scan-code-panel{max-width:440px;margin:24px auto}
+#scan-code-form{display:grid;gap:14px}
+#scan-code{width:100%;font:inherit;font-size:24px;letter-spacing:5px;padding:12px;border:1px solid #d9d4e7;border-radius:10px;background:#fff;color:#27283e}
+#scan-code::placeholder{font-size:15px;letter-spacing:0}
+#scan-code:focus-visible{outline:2px solid #b7a6ff;outline-offset:2px}
+#scan-code-error{color:#b94357;font-size:13px;line-height:1.7;margin:0;min-height:1.7em}

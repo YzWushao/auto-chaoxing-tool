@@ -220,31 +220,67 @@ async function startAndroidCamera(accounts,location){
     c.poll=setInterval(()=>{if(generation===c.generation)void viewServerCameraResult();},1000);
   }catch(error){if(generation===c.generation)stopServerCamera(error.message);}
 }
-async function initializeServerScanLink(){
-  const c=serverCamera;c.capability=true;
-  const token=location.hash.slice(1);history.replaceState(null,'',location.pathname);
-  sc('server-camera-start').disabled=true;
-  try{
-    const response=await fetch('/scan-api/claim',{method:'POST',credentials:'same-origin',cache:'no-store',
-      headers:{'Content-Type':'application/json','X-Scan-Request':'1'},body:JSON.stringify({token})});
-    const data=await response.json();if(!response.ok)throw new Error(data.error||'入口已失效');
-    c.csrf=data.csrf;c.deadline=performance.now()+data.remaining_seconds*1000;
-    c.pickUsers=data.select_users===true;
-    if(c.pickUsers){
-      sc('server-camera-user-panel').hidden=false;
-      sc('server-camera-user-list').innerHTML=serverCameraUserChoices(data.accounts||[]);
-      sc('server-camera-location-panel').hidden=false;
-      sc('server-camera-location-list').innerHTML=serverCameraLocationChoices(data.locations||[]);
-      sc('server-camera-concurrency').textContent=`最多 ${data.concurrency||1} 人并发`;
-    }
-    scMessage(c.pickUsers?'请先勾选本次需要签到的用户，再点击开始扫描。':'入口已领取。点击开始扫描，画面发送服务器；在下方查看签到结果。');renderServerCameraState();
-    c.expiry=setInterval(()=>{
-      const remaining=Math.max(0,Math.ceil((c.deadline-performance.now())/1000));
-      if(sc('remaining'))sc('remaining').textContent=`剩余 ${Math.floor(remaining/60)}:${String(remaining%60).padStart(2,'0')}`;
-      if(!remaining){stopServerCamera('本次入口已超时。');c.phase='ended';clearInterval(c.expiry);renderServerCameraState();}
-    },250);
-  }catch(error){c.phase='ended';scMessage(error.message);renderServerCameraState();}
+function showServerScanCodeForm(){
+  const c=serverCamera;
+  if(c.csrf&&c.phase!=='ended')void fetch('/scan-api/close',{method:'POST',credentials:'same-origin',keepalive:true,headers:scHeaders(),body:'{}'}).catch(()=>{});
+  scRelease();clearInterval(c.expiry);c.csrf='';c.runId='';c.result=null;c.phase='idle';c.pickUsers=false;c.rowsKey='';c.manualUsers=null;c.deadline=0;
+  if(sc('scan-code-panel'))sc('scan-code-panel').hidden=false;
+  sc('server-camera-root').hidden=true;
+  for(const id of ['server-camera-user-list','server-camera-location-list','server-camera-results'])if(sc(id))sc(id).innerHTML='';
+  sc('server-camera-select-all').checked=false;sc('server-camera-report-location').checked=false;
+  sc('server-camera-counter').textContent='';if(sc('remaining'))sc('remaining').textContent='请输入验证码';
+  renderServerCameraState();
 }
+async function verifyServerScanCode(code){
+  const c=serverCamera;
+  if(!/^[0-9]{8}$/.test(code))throw new Error('请输入8位纯数字验证码');
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);
+  let response,data;
+  try{
+    response=await fetch('/scan-api/verify',{method:'POST',credentials:'same-origin',cache:'no-store',signal:controller.signal,
+      headers:{'Content-Type':'application/json','X-Scan-Request':'1'},body:JSON.stringify({code})});
+    data=await response.json();
+  }catch(error){throw new Error(error.name==='AbortError'?'验证请求超时，请重试；如验证码已使用，请回 QQ 获取新验证码。':'无法连接扫码服务，请稍后重试。');}
+  finally{clearTimeout(timeout);}
+  if(!response.ok)throw Object.assign(new Error(data.error||'验证码验证失败'),{status:response.status});
+  c.phase='idle';c.runId='';c.result=null;c.rowsKey='';
+  if(sc('scan-code-panel'))sc('scan-code-panel').hidden=true;
+  sc('server-camera-root').hidden=false;
+  c.csrf=data.csrf;c.deadline=performance.now()+data.remaining_seconds*1000;
+  c.pickUsers=data.select_users===true;
+  sc('server-camera-user-panel').hidden=!c.pickUsers;
+  sc('server-camera-location-panel').hidden=!c.pickUsers;
+  if(c.pickUsers){
+    sc('server-camera-user-list').innerHTML=serverCameraUserChoices(data.accounts||[]);
+    sc('server-camera-location-list').innerHTML=serverCameraLocationChoices(data.locations||[]);
+    sc('server-camera-concurrency').textContent=`最多 ${data.concurrency||1} 人并发`;
+  }
+  scMessage(c.pickUsers?'请先勾选本次需要签到的用户，再点击开始扫描。':'验证成功。点击开始扫描，画面发送服务器；在下方查看签到结果。');renderServerCameraState();
+  c.expiry=setInterval(()=>{
+    const remaining=Math.max(0,Math.ceil((c.deadline-performance.now())/1000));
+    if(sc('remaining'))sc('remaining').textContent=`剩余 ${Math.floor(remaining/60)}:${String(remaining%60).padStart(2,'0')}`;
+    if(!remaining){stopServerCamera('本次扫码权限已超时。');c.phase='ended';clearInterval(c.expiry);renderServerCameraState();}
+  },250);
+  return data;
+}
+function initializeServerScanLink(){
+  serverCamera.capability=true;
+  // Credentials are entered in the form, never carried in the address.
+  if(location.hash)history.replaceState(null,'',location.pathname);
+  showServerScanCodeForm();
+}
+document.addEventListener('submit',async event=>{
+  if(event.target.id!=='scan-code-form')return;
+  event.preventDefault();const button=sc('scan-code-submit');if(button.disabled)return;
+  button.disabled=true;sc('scan-code-error').textContent='';
+  try{await verifyServerScanCode(sc('scan-code').value.trim());sc('scan-code').value='';}
+  catch(error){sc('scan-code-error').textContent=error.message;}
+  finally{button.disabled=false;}
+});
+document.addEventListener('click',event=>{
+  if(event.target.closest('#scan-code-reenter')){showServerScanCodeForm();sc('scan-code').value='';sc('scan-code-error').textContent='';sc('scan-code')?.focus?.();}
+});
+
 document.addEventListener('click',async event=>{
   const button=event.target.closest('#server-camera-start,#server-camera-stop,#server-camera-result');if(!button||button.disabled)return;
   if(button.id==='server-camera-start')void startServerCamera();

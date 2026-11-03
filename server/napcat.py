@@ -135,9 +135,9 @@ class SignConversation(BatchConversation):
     def scan_entry(self, qq, state, activities):
         if not self.scan_links:
             return ''
-        link = self.scan_links.issue(qq, state['owner'], state['account_id'], activities)
-        return ('\n一次性摄像头扫码入口（免控制台登录）：\n' + link +
-                '\n只能为本次所选用户扫码；5 分钟内有效，仅可领取一次，完成一个活动或关闭后失效。请在浏览器中打开并允许摄像头。') if link else ''
+        access = self.scan_links.issue_code(qq, state['owner'], state['account_id'], activities)
+        return ('\n摄像头扫码入口（免控制台登录）：\n' + access['url'] + '\n验证码：' + access['code'] +
+                '\n验证码为8位数字，5分钟内有效；验证后仅可为本次所选用户扫码，完成或结束后失效。') if access else ''
 
     def revoke_scan(self, qq):
         if self.scan_links:
@@ -264,12 +264,12 @@ class SignConversation(BatchConversation):
             self.revoke_scan(qq)
             if text == '扫码签到':
                 self.sessions.pop(qq, None)
-                link = self.scan_links.issue_picker(qq) if self.scan_links else None
-                if not link:
-                    self.send(qq, '暂时无法生成扫码入口。请在网页设置中配置一次性扫码入口地址，并确认已有超星用户（每次最多 200 位）。')
+                access = self.scan_links.issue_picker_code(qq) if self.scan_links else None
+                if not access:
+                    self.send(qq, '暂时无法生成扫码入口。请在网页设置中配置扫码网页根地址，并确认已有超星用户（每次最多 200 位）。')
                     return
-                self.send(qq, '进入摄像头扫码签到：\n' + link +
-                          '\n打开后手动勾选需要签到的用户，再点击“开始扫描”。免控制台登录；入口仅可领取一次，5 分钟内有效，完成或结束后失效。')
+                self.send(qq, '进入摄像头扫码签到：\n' + access['url'] + '\n验证码：' + access['code'] +
+                          '\n在固定网页输入8位数字验证码，验证后手动勾选用户开始扫描。验证码5分钟内有效，验证后绑定当前浏览器，完成或结束后失效。')
                 return
             mode = self.store.preferences(self.owner)['account_label']
             choices = [{'id': a['id'], 'owner': a['owner'], 'name': account_label(a, mode), 'status': a['status']} for a in self.accounts()]

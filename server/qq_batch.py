@@ -160,9 +160,9 @@ class BatchConversation:
         if not self.scan_links:
             return ''
         targets = [dict(owner=t['owner'], account_id=t['account_id'], activities=[t['activity']]) for t in group['targets']]
-        link = self.scan_links.issue_many(qq, targets)
-        return ('\n一次性摄像头扫码入口（免控制台登录）：\n'+link+
-                '\n仅限本活动的所选用户，5 分钟有效。入口完成后，回 QQ 回复“继续”处理下一项。') if link else ''
+        access = self.scan_links.issue_many_code(qq, targets)
+        return ('\n摄像头扫码入口（免控制台登录）：\n'+access['url']+'\n验证码：'+access['code']+
+                '\n8位数字验证码，5分钟有效，仅限本活动的所选用户。完成后回QQ回复“继续”处理下一项。') if access else ''
 
     def batch_advance(self, qq, state):
         self.revoke_scan(qq)

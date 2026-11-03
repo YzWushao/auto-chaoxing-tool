@@ -44,7 +44,7 @@ def test_scan_sign_is_direct_link_and_never_fetches_activities(app,chat,monkeypa
     monkeypatch.setattr('server.qq_intent.interpret',fail)
     chat['config']['intent_enabled']=True
     say=integrated(app,chat);say('扫码签到')
-    assert '/scan#' in chat['sent'][-1][1] and '摄像头' in chat['sent'][-1][1]
+    assert '/scan' in chat['sent'][-1][1] and '/scan#' not in chat['sent'][-1][1] and '验证码：' in chat['sent'][-1][1]
     assert QQ not in chat['conversation'].sessions and not chat['calls']
 
 
