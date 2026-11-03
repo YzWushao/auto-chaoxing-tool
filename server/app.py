@@ -31,7 +31,7 @@ from .camera_streams import CameraStreams
 from .scan_links import ScanLinks, install_scan_routes
 from .napcat import NapCatManager, public_settings as public_napcat_settings, validate_settings as validate_napcat_settings, test_connection as test_napcat_connection
 from .qq_intent import test_connection as test_intent_connection
-from .api_access import ApiAccess, SCOPES
+from .api_access import ApiAccess, SCOPES, ConsoleSessionInterface
 from .api_schema import install_external_api, openapi_document, model_tools
 
 
@@ -47,6 +47,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
         app.config.update(config)
     store = Store(app.config["DATA_DIR"])
     app.secret_key = store.session_key
+    app.session_interface = ConsoleSessionInterface()
     tasks = TaskManager(store)
     qr = QRLogin(client_factory)
     map_search = MapSearch()

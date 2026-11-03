@@ -9,6 +9,19 @@ import uuid
 from collections import defaultdict, deque
 
 from flask import g, jsonify, request
+from flask.sessions import SecureCookieSessionInterface
+
+
+class ConsoleSessionInterface(SecureCookieSessionInterface):
+    """The plugin API never loads or refreshes a caller's console cookie."""
+    def open_session(self, app, req):
+        if req.path.startswith('/api/v1/'):
+            return self.session_class()
+        return super().open_session(app, req)
+
+    def save_session(self, app, session, response):
+        if not request.path.startswith('/api/v1/'):
+            super().save_session(app, session, response)
 
 
 SCOPES = {

@@ -47,6 +47,9 @@ def test_keys_default_off_only_hash_persisted_and_bearer_never_sets_console_cook
 def test_no_cookie_query_or_csrf_fallback_for_external_api(app,browser):
     headers,_=mint(app,browser)
     assert browser.client.get('/api/v1/me').status_code==401
+    verified=browser.client.get('/api/v1/me',headers=headers)
+    assert verified.status_code==200 and 'Set-Cookie' not in verified.headers and 'Cookie' not in verified.headers.get('Vary','')
+    assert browser.get('/session').json['authenticated'] is True
     assert call(app,{},'/me?api_key='+headers['Authorization'][7:]).status_code==401
     assert call(app,{'Authorization':'Basic invalid'},'/me').status_code==401
     assert browser.send('/preferences',{'camera_concurrency':2},'PUT').status_code==200
