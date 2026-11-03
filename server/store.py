@@ -16,13 +16,14 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 from werkzeug.security import check_password_hash, generate_password_hash
 from .device_codes import DeviceBindings
+from .api_access import ApiTokens, API_SCHEMA
 
 
 def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-class Store(DeviceBindings):
+class Store(DeviceBindings, ApiTokens):
     """SQLite transactions + encrypted platform sessions and configuration."""
 
     def __init__(self, directory):
@@ -97,7 +98,7 @@ class Store(DeviceBindings):
                     token_hash TEXT PRIMARY KEY, admin_id INTEGER NOT NULL,
                     created_at REAL NOT NULL, expires_at REAL NOT NULL
                 );
-            """)
+            """ + API_SCHEMA)
             # Claim legacy workspaces without rewriting accounts, IDs, or secrets.
             # Only the local administrator can access them after this upgrade.
             db.execute("BEGIN IMMEDIATE")
@@ -194,6 +195,7 @@ class Store(DeviceBindings):
             db.execute("UPDATE administrators SET username=?,password_hash=?,default_password=?,updated_at=? WHERE id=?",
                        (username.strip(), password_hash, 0 if new_password else row["default_password"], now(), admin_id))
             db.execute("DELETE FROM admin_sessions WHERE admin_id=?", (admin_id,))
+            db.execute('UPDATE api_tokens SET revoked=1 WHERE admin_id=?', (admin_id,))
 
     def save_account(self, owner, profile, cookies, defaults):
         with self.lock, self.connect() as db:

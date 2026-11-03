@@ -31,6 +31,8 @@ from .camera_streams import CameraStreams
 from .scan_links import ScanLinks, install_scan_routes
 from .napcat import NapCatManager, public_settings as public_napcat_settings, validate_settings as validate_napcat_settings, test_connection as test_napcat_connection
 from .qq_intent import test_connection as test_intent_connection
+from .api_access import ApiAccess, SCOPES
+from .api_schema import install_external_api, openapi_document, model_tools
 
 
 def create_app(config=None, client_factory=ChaoxingClient):
@@ -51,6 +53,8 @@ def create_app(config=None, client_factory=ChaoxingClient):
     app.extensions['map_search'] = map_search
     amap_proxy = AMapProxy()
     app.extensions.update(store=store, tasks=tasks, qr=qr)
+    access = ApiAccess(store)
+    app.extensions['api_access'] = access
     account_locks = defaultdict(threading.RLock)
     rate = defaultdict(deque)
     rate_lock = threading.Lock()
@@ -59,6 +63,9 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def guard():
         if not request.path.startswith("/api/"):
             return
+        g.api_key = None
+        if request.path.startswith('/api/v1/'):
+            return access.authenticate()
         session.permanent = True
         if "csrf" not in session:
             session["csrf"] = secrets.token_urlsafe(32)
@@ -82,6 +89,8 @@ def create_app(config=None, client_factory=ChaoxingClient):
 
     @app.after_request
     def security_headers(response):
+        if hasattr(g,'api_request_id'):
+            response = access.finish(response)
         response.headers["X-Content-Type-Options"] = "nosniff"
         # OSM's tile policy requires a Referer; only the origin crosses sites.
         response.headers["Referrer-Policy"] = "no-referrer" if request.path.startswith(('/scan', '/static/scan-link')) else "strict-origin-when-cross-origin"
@@ -163,6 +172,15 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def public_admin():
         return {k: g.admin[k] for k in ("username", "default_password")}
 
+    def login_identity():
+        return 'api:'+g.api_key['id'] if g.api_key else session['browser_id']
+
+    def login_authorized():
+        if g.api_key:
+            record=store.api_token(request.headers.get('Authorization','')[7:])
+            return bool(record and 'accounts:write' in record['key']['scopes'])
+        return bool(store.admin_session(session.get('admin_sid')))
+
     def public_account(value):
         return {k: v for k, v in value.items() if k not in {"owner", "cookies", "config", "phone"}} | {
             'name': account_label(value, store.preferences(g.admin['owner'])['account_label']),
@@ -198,7 +216,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
     app.extensions.update(signing=signing, napcat=napcat, scan_links=scan_links)
 
     def finish_login(client, profile, target_id=None):
-        if not store.admin_session(session.get("admin_sid")):
+        if not login_authorized():
             raise Unauthorized("管理员会话已失效，请重新登录")
         target = account(target_id) if target_id else next((a for a in accounts() if a["uid"] == profile["uid"]), None)
         if target and target["uid"] != profile["uid"]:
@@ -206,7 +224,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
         owner = target["owner"] if target else g.admin["owner"]
         value = store.save_account(owner, profile, client.cookies(), account_defaults())
         store.event(owner, value["id"], "login_success", f"{value['name']} 登录成功")
-        return {"account": public_account(value), "csrf": session["csrf"]}
+        return {"account": public_account(value), **({} if g.api_key else {"csrf": session["csrf"]})}
 
     @app.get("/")
     def index():
@@ -262,8 +280,9 @@ def create_app(config=None, client_factory=ChaoxingClient):
             raise ValueError("管理员配置含未知字段")
         store.update_admin(g.admin["id"], data.get("username", g.admin["username"]),
                            data.get("current_password", ""), data.get("new_password", ""))
-        qr.cancel_browser(session["browser_id"])
-        session.clear()
+        qr.cancel_browser(login_identity())
+        if not g.api_key:
+            session.clear()
         return jsonify(ok=True, reauthenticate=True)
 
     @app.post("/api/auth/password")
@@ -282,9 +301,9 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.post("/api/auth/qr")
     def qr_create():
         limit_login()
-        result = qr.create(session["browser_id"])
-        if not store.admin_session(session.get("admin_sid")):
-            qr.cancel(session["browser_id"], result["id"])
+        result = qr.create(login_identity())
+        if not login_authorized():
+            qr.cancel(login_identity(), result["id"])
             raise Unauthorized("管理员会话已失效，请重新登录")
         return jsonify(result)
 
@@ -293,14 +312,14 @@ def create_app(config=None, client_factory=ChaoxingClient):
         data = body()
         if data.get("account_id"):
             account(data["account_id"])
-        state, client = qr.poll(session["browser_id"], token)
+        state, client = qr.poll(login_identity(), token)
         if client:
             return jsonify(state="confirmed", **finish_login(client, state["profile"], data.get("account_id")))
         return jsonify(state)
 
     @app.post("/api/auth/qr/<token>/cancel")
     def qr_cancel(token):
-        qr.cancel(session["browser_id"], token)
+        qr.cancel(login_identity(), token)
         return jsonify(ok=True)
 
     @app.post("/api/auth/logout")
@@ -342,7 +361,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
         return jsonify(device_payload())
 
     def stream_identity():
-        return ('admin', g.admin['id'], session['browser_id'])
+        return ('api',g.admin['id'],g.api_key['id']) if g.api_key else ('admin', g.admin['id'], session['browser_id'])
 
     @app.post('/api/camera-stream')
     def camera_stream_start():
@@ -360,10 +379,17 @@ def create_app(config=None, client_factory=ChaoxingClient):
                        for s in store.location_presets(g.admin['owner'])):
                 raise ValueError('预设点位已移除，请重新选择')
         prefs = store.preferences(g.admin['owner'])
-        admin_sid = session['admin_sid']
-        def authority():
-            if not store.admin_session(admin_sid):
-                raise ValueError('管理员会话已失效')
+        if g.api_key:
+            api_token=request.headers.get('Authorization','')[7:]
+            def authority():
+                authorized=store.api_token(api_token)
+                if not authorized or 'sign:write' not in authorized['key']['scopes']:
+                    raise ValueError('API 扫码权限已失效')
+        else:
+            admin_sid = session['admin_sid']
+            def authority():
+                if not store.admin_session(admin_sid):
+                    raise ValueError('管理员会话已失效')
         selected = [dict(id=a['id'],owner=a['owner'],name=account_label(a,prefs['account_label'])) for a in values]
         run = streams.start(stream_identity(),selected,prefs['camera_concurrency'],location=location,authority=authority,
                             interval=prefs['camera_scan_interval'],input_mode=data.get('input','jpeg'))
@@ -599,6 +625,10 @@ def create_app(config=None, client_factory=ChaoxingClient):
     @app.post("/api/accounts/<account_id>/sign")
     def sign(account_id):
         value, supplied = account(account_id), body()
+        if g.api_key and 'location_preset' in supplied:
+            from .location_presets import resolve_point
+            from .sign_coordinates import location_parameters
+            supplied.update(location_parameters(resolve_point(store,g.admin['owner'],supplied['location_preset'])))
         return jsonify(signing.submit(value['owner'], account_id, supplied))
 
     @app.post('/api/accounts/<account_id>/camera-sign')
@@ -683,5 +713,64 @@ def create_app(config=None, client_factory=ChaoxingClient):
             raise ValueError("请输入有效内容")
         tasks.answer(owned_job(job_id)["owner"], job_id, value)
         return jsonify(ok=True)
+
+    @app.get('/api/accounts')
+    def accounts_list():
+        return jsonify(accounts=[public_account(a) for a in accounts()])
+
+    @app.get('/api/accounts/<account_id>')
+    def account_detail(account_id):
+        return jsonify(account=public_account(account(account_id)))
+
+    @app.get('/api/preferences')
+    def preferences_read():
+        return jsonify(preferences=store.preferences(g.admin['owner']))
+
+    @app.get('/api/settings')
+    def settings_read():
+        return jsonify(api=public_api(store.settings(g.admin['owner']).get('api', API_DEFAULTS)))
+
+    @app.post('/api/scan-entry')
+    def scan_entry():
+        data=body()
+        if set(data)!={'qq'} or not isinstance(data['qq'],str):
+            raise ValueError('需要提供已授权的 QQ 号 qq')
+        result=scan_links.issue_picker_code(data['qq'])
+        if not result:
+            raise ValueError('无法生成扫码验证码，请检查授权 QQ、网页根地址及超星账户配置')
+        return jsonify(**result,expires_in=scan_links.ttl)
+
+    @app.get('/api/access')
+    def access_settings():
+        return jsonify(enabled=store.api_enabled(g.admin['id']),keys=store.api_tokens(g.admin['id']),
+                       scopes=SCOPES,audit=store.api_audit(g.admin['id']))
+
+    @app.put('/api/access')
+    def access_save():
+        data=body()
+        if set(data)!={'enabled'}:
+            raise ValueError('需要提供 enabled 开关')
+        store.set_api_enabled(g.admin['id'],data['enabled'])
+        return jsonify(enabled=store.api_enabled(g.admin['id']))
+
+    @app.post('/api/access/keys')
+    def access_key_create():
+        return jsonify(store.create_api_token(g.admin['id'],body())),201
+
+    @app.delete('/api/access/keys/<key_id>')
+    def access_key_revoke(key_id):
+        store.revoke_api_token(g.admin['id'],key_id)
+        qr.cancel_browser('api:'+key_id)
+        return jsonify(ok=True)
+
+    @app.get('/api/access/openapi.json')
+    def access_document():
+        return jsonify(openapi_document(access))
+
+    @app.get('/api/access/tools')
+    def access_tools():
+        return jsonify(tools=model_tools(access))
+
+    install_external_api(app,access)
 
     return app
