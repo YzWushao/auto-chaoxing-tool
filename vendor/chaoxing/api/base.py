@@ -31,6 +31,7 @@ from api.decode import (
     decode_course_folder,
     decode_questions_info,
 )
+from api.work_answers import matched_answer
 
 
 def get_timestamp():
@@ -1098,7 +1099,7 @@ class Chaoxing:
             answers = self.tiku.query_all(questions["questions"], query_delay=query_delay)
 
             if not isinstance(answers, list):
-                logger.error("题库 query_all 返回的数据格式异常，期望列表。将采用随机答案答题")
+                logger.error("题库 query_all 返回的数据格式异常，期望列表；本轮答案留空，不随机作答")
                 answers = [None] * total_questions
             elif len(answers) != total_questions:
                 logger.error(
@@ -1108,84 +1109,25 @@ class Chaoxing:
 
             for q, res in zip(questions["questions"], answers):
                 logger.debug(f"当前题目信息 -> {q}")
-                answer = ""
-                if not res:
-                    # 随机答题
-                    answer = random_answer(q["options"], q["type"])
-                    q[f'answerSource{q["id"]}'] = "random"
+                answer = matched_answer(q, res, self.tiku)
+                q[f'answerSource{q["id"]}'] = "cover" if answer else "missing"
+                if answer:
+                    found_answers += 1
                 else:
-                    # 根据响应结果选择答案
-                    if q["type"] == "multiple":
-                        # 多选处理
-                        options_list = multi_cut(q["options"], _ORIGIN_HTML_CONTENT)
-                        res_list = multi_cut(res, _ORIGIN_HTML_CONTENT)
-                        if res_list is not None and options_list is not None:
-                            for _a in clean_res(res_list):
-                                matched = False
-                                for o in options_list:
-                                    if (
-                                            is_subsequence(_a, o)  # 去掉各种符号和前面ABCD的答案应当是选项的子序列
-                                    ):
-                                        answer += o[:1]
-                                        matched = True
-                                        break  # 找到匹配项后立即停止，防止重复添加
-                                if not matched:
-                                    best_letter = best_option_by_similarity(_a, options_list, threshold=0.8)
-                                    if best_letter:
-                                        answer += best_letter
-                            # 对答案进行排序, 否则会提交失败
-                            answer = "".join(sorted(set(answer)))
-                        # else 如果分割失败那么就直接到下面去随机选
-                    elif q["type"] == "single":
-                        # 单选也进行切割，主要是防止返回的答案有异常字符
-                        options_list = multi_cut(q["options"], _ORIGIN_HTML_CONTENT)
-                        if options_list is not None:
-                            t_res = clean_res(res)
-                            for o in options_list:
-                                if is_subsequence(t_res[0], o):
-                                    answer = o[:1]
-                                    break
-                            if not answer and t_res:
-                                answer = best_option_by_similarity(t_res[0], options_list, threshold=0.8)
-                    elif q["type"] == "judgement":
-                        answer = "true" if self.tiku.judgement_select(res) else "false"
-                    elif q["type"] == "completion":
-                        if isinstance(res, list):
-                            answer = "".join(res)
-                        elif isinstance(res, str):
-                            answer = res
-                    else:
-                        # 其他类型直接使用答案 （目前仅知有简答题，待补充处理）
-                        answer = res
-
-                    if not answer:  # 检查 answer 是否为空
-                        logger.warning(f"找到答案但答案未能匹配 -> {res}\t随机选择答案")
-                        answer = random_answer(q["options"], q["type"])  # 如果为空，则随机选择答案
-                        q[f'answerSource{q["id"]}'] = "random"
-                    else:
-                        logger.info(f"成功获取到答案：{answer}")
-                        q[f'answerSource{q["id"]}'] = "cover"
-                        found_answers += 1
+                    logger.warning("题库未命中或答案无法完整匹配，留空且不随机作答")
                 # 填充答案
                 q["answerField"][f'answer{q["id"]}'] = answer
                 logger.info(f'{q["title"]} 填写答案为 {answer}')
             cover_rate = (found_answers / total_questions) * 100
-            logger.info(f"章节检测题库覆盖率： {cover_rate:.0f}%")
+            logger.info(f"章节检测题库命中率（答案完整匹配）：{found_answers}/{total_questions} = {cover_rate:.2f}%，最低要求 {self.tiku.COVER_RATE * 100:.2f}%")
             # 提交模式  现在与题库绑定,留空直接提交, 1保存但不提交
-            is_manual_mode = (
-                    getattr(self.tiku, 'is_manual', False) or
-                    self.tiku.__class__.__name__ == 'TikuManual' or
-                    (self.tiku.__class__.__name__ == 'TikuFallback' and any(
-                        getattr(p, 'is_manual', False) or p.__class__.__name__ == 'TikuManual' for p in
-                        getattr(self.tiku, 'providers', [])))
-            )
             if self.tiku.get_submit_params() == "1":
                 questions["pyFlag"] = "1"
-            elif is_manual_mode or cover_rate >= self.tiku.COVER_RATE * 100 or self.rollback_times >= 1:
+            elif cover_rate >= self.tiku.COVER_RATE * 100:
                 questions["pyFlag"] = ""
             else:
                 questions["pyFlag"] = "1"
-                logger.info(f"章节检测题库覆盖率低于{self.tiku.COVER_RATE * 100:.0f}%，不予提交")
+                logger.info(f"题库命中率低于最低要求 {self.tiku.COVER_RATE * 100:.2f}%，仅保存已匹配答案，不提交")
             # 组建提交表单
             if questions["pyFlag"] == "1":
                 for q in questions["questions"]:

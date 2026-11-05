@@ -17,6 +17,7 @@ BOOL={'type':'boolean'}
 SOURCE={'type':'string','enum':['course'],'default':'course'}
 LOCATION=obj({'school':TEXT,'name':TEXT},['school','name'])
 API=obj({k:{'type':'string'} for k in API_DEFAULTS})
+API['properties']['cover_rate'].update(description='最低题库命中率，0～1 的比例字符串。低于阈值仅保存，不提交；未命中或匹配不完整的答案留空。网页以百分数显示，命中率不保证实际正确率。', default=API_DEFAULTS['cover_rate'])
 STUDY=obj({k:{'type':'boolean' if type(v) is bool else 'integer' if type(v) is int else 'number' if type(v) is float else 'string'} for k,v in STUDY_DEFAULTS.items()})
 CONFIG=obj({'course_keys':{'type':'array','items':TEXT},'inherit_api':BOOL,'api':API,'study':STUDY})
 POINT=obj({'name':TEXT,'longitude':{'type':'number'},'latitude':{'type':'number'},'coordinate_system':{'enum':['wgs84','gcj02','bd09']}},['name','longitude','latitude','coordinate_system'])
