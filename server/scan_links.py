@@ -438,7 +438,7 @@ def install_scan_routes(app, links):
             selected = [dict(id=a['id'],owner=a['owner'],name='当前用户') for a in accounts]
             run = streams.start(('scan',id(record)),selected,concurrency=prefs['camera_concurrency'],
                                 expires=record['expires'],allowed=record['allowed'],authority=lambda:links._alive(record),finished=finished,
-                                interval=prefs['camera_scan_interval'],location=location,
+                                interval=prefs['camera_scan_interval'],location=location,retry_interval=prefs['camera_retry_interval'],
                                 input_mode=options.get('input','jpeg'))
             record['accounts'] = accounts
             record['selected_location'] = options.get('location')

@@ -393,7 +393,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
                     raise ValueError('管理员会话已失效')
         selected = [dict(id=a['id'],owner=a['owner'],name=account_label(a,prefs['account_label'])) for a in values]
         run = streams.start(stream_identity(),selected,prefs['camera_concurrency'],location=location,authority=authority,
-                            interval=prefs['camera_scan_interval'],input_mode=data.get('input','jpeg'))
+                            interval=prefs['camera_scan_interval'],input_mode=data.get('input','jpeg'),retry_interval=prefs['camera_retry_interval'])
         return jsonify(run.snapshot())
 
     @app.get('/api/camera-stream/<run_id>')

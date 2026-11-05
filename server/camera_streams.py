@@ -13,7 +13,7 @@ TERMINAL = {'completed', 'stopped', 'expired', 'attention', 'error'}
 
 
 class CameraRun:
-    def __init__(self, manager, identity, accounts, concurrency, expires, allowed=None, location=None, authority=None, finished=None, interval=.1, input_mode='jpeg'):
+    def __init__(self, manager, identity, accounts, concurrency, expires, allowed=None, location=None, authority=None, finished=None, interval=.1, input_mode='jpeg', retry_interval=2.5):
         self.manager, self.identity, self.expires = manager, identity, expires
         self.id = secrets.token_urlsafe(24)
         self.lock = threading.RLock()
@@ -23,6 +23,7 @@ class CameraRun:
             failures=0,pass_failures=0,next_retry=0,message='等待扫码') for a in accounts}
         self.order = list(self.entries)
         self.concurrency = concurrency
+        self.retry_interval = retry_interval
         if input_mode not in {'jpeg','native'}:
             raise ValueError('扫码输入方式无效')
         self.input_mode = input_mode
@@ -190,7 +191,7 @@ class CameraRun:
                     return
             if self.authority:
                 self.authority()
-            self.manager.camera.submit(item['owner'],account_id,raw,location=self.location)
+            self.manager.camera.submit(item['owner'],account_id,raw,location=self.location,retry_interval=self.retry_interval)
             outcome,message='succeeded','签到成功'
         except CameraRateLimit:
             rate_limited=True;message='正在等待该用户的重试间隔'
@@ -208,7 +209,7 @@ class CameraRun:
             with self.lock:
                 self.inflight-=1
                 item['state'],item['message']=outcome,message
-                item['next_retry']=time.monotonic()+2.5
+                item['next_retry']=time.monotonic()+self.retry_interval
                 if outcome in {'succeeded','waiting'}:
                     self.order=[v for v in self.order if v!=account_id]
                 elif rate_limited or outcome=='cancelled':

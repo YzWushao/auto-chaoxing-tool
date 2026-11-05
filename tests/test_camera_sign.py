@@ -150,3 +150,15 @@ def test_five_camera_requests_overlap_without_mixing_cookies(browser, app, qr_ac
             f"/accounts/{pair[1]['id']}/camera-sign", {'qr': QR}), zip(clients, accounts)))
     assert [r.status_code for r in results] == [200] * 5
     assert sorted(calls) == [(f'1380000000{i}', f'测试用户000{i}') for i in range(1, 6)]
+
+
+@pytest.mark.parametrize('interval,second_status',[(0,502),(1000000000000,429)])
+def test_service_uses_configured_retry_interval_without_two_second_floor(browser,qr_activity,monkeypatch,interval,second_status):
+    account=browser.login()
+    browser.send('/preferences',{'camera_retry_interval':interval},'PUT')
+    def reject(*args):
+        raise PlatformError('offline rejection')
+    monkeypatch.setattr(FakeClient,'sign',reject)
+    path='/accounts/'+account['id']+'/camera-sign'
+    assert browser.send(path,{'qr':QR}).status_code==502
+    assert browser.send(path,{'qr':QR}).status_code==second_status

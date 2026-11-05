@@ -41,7 +41,7 @@ WRITES={
  'camera_stream_stop':('sign:write','停止本 API 密钥创建的扫码队列',obj()),
  'device_global':('settings:write','设置统一设备码，可选择应用到已有账户',obj({'code':TEXT,'apply_existing':BOOL},['code','apply_existing'])),
  'device_account':('settings:write','绑定指定账户设备码或生成固定随机码',obj({'action':{'enum':['random','bind']},'code':TEXT,'source':{'enum':['manual','browser','imported']}},['action'])),
- 'preferences_save':('settings:write','修改用户称呼及扫码并发、识别间隔',obj({'account_label':{'enum':['phone_tail','surname_mask','full_name','masked_surname','surname_tail']},'camera_concurrency':{'type':'integer','minimum':1,'maximum':20,'default':5},'camera_scan_interval':{'type':'number','minimum':.05,'maximum':10}})),
+ 'preferences_save':('settings:write','修改用户称呼及扫码并发、识别间隔和失败重试间隔',obj({'account_label':{'enum':['phone_tail','surname_mask','full_name','masked_surname','surname_tail']},'camera_concurrency':{'type':'integer','minimum':1,'maximum':20,'default':5},'camera_scan_interval':{'type':'number','minimum':.05,'maximum':10},'camera_retry_interval':{'type':'number','minimum':0,'default':2.5}})),
  'napcat_save':('settings:write','保存 NapCat 连接与模型配置并应用',NAPCAT),
  'napcat_test':('settings:write','测试 NapCat 登录信息连接，不发 QQ 消息',NAPCAT),
  'napcat_intent_test':('settings:write','测试意图模型连接，可能产生 API 费用',NAPCAT),

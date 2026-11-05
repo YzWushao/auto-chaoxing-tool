@@ -237,3 +237,28 @@ def test_scoped_queue_records_safe_reason_after_activity_ends(grant, monkeypatch
 
 def test_live_zoom_slider_changes_preview_and_encoded_frame_together():
     run_node("require('./tests/camera_zoom_controller.cjs')")
+
+
+@pytest.mark.parametrize('interval',[0,0.125,1000000000000])
+def test_admin_and_qq_scans_receive_retry_interval(grant,interval):
+    from tests.conftest import Browser
+    admin=Browser(grant['app']);admin.admin_login()
+    admin.send('/preferences',{'camera_retry_interval':interval},'PUT')
+    streams=grant['app'].extensions['camera_streams']
+    start=admin.send('/camera-stream',{'account_ids':[grant['accounts'][0]['id']]})
+    assert streams.runs[start.json['id']].retry_interval==interval
+    client,headers,_=claim(grant)
+    start=client.post('/scan-api/start',json={},headers=headers)
+    run=streams.runs[start.json['id']]
+    assert run.retry_interval==interval
+    run.finish('stopped','offline setup');run.thread.join(timeout=2)
+    run.state='running'
+    def reject(*args,**kwargs):
+        assert kwargs['retry_interval']==interval
+        raise ValueError('offline failure')
+    streams.camera.submit=reject
+    streams.sign_slots.acquire();run.inflight=1
+    before=time.monotonic();run.sign(grant['accounts'][0]['id'],QR);after=time.monotonic()
+    next_retry=run.entries[grant['accounts'][0]['id']]['next_retry']
+    assert before+interval<=next_retry<=after+interval
+    run.finish('stopped','test complete')

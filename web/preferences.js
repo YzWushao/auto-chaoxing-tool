@@ -6,14 +6,14 @@ function preferencesPanel() {
 }
 function cameraPreferencesPanel() {
   const value=state.preferences||{};
-  return `<form id="camera-preferences-form" class="panel"><div class="panel-header"><div><h3>扫码签到</h3><p class="subheading">保存后在下一次启动扫码时生效</p></div></div><div class="panel-body"><div class="field-grid"><div class="field"><label for="camera-concurrency">扫码签到并发数</label><input id="camera-concurrency" name="camera_concurrency" type="number" min="1" max="20" step="1" value="${esc(value.camera_concurrency??5)}" required><small>默认 5，范围 1～20；表示同一队列最多同时提交的用户数。</small></div><div class="field"><label for="camera-scan-interval">两次识别间隔（秒）</label><input id="camera-scan-interval" name="camera_scan_interval" type="number" min="0.05" max="10" step="0.05" value="${esc(value.camera_scan_interval??0.1)}" required><small>默认 0.1 秒，范围 0.05～10 秒；上一帧未识别完时等待，不叠加解码。</small></div></div><p class="setting-note">同一用户保持串行，失败后至少等待 2.5 秒再重试。需要滑块、位置或本人照片时，等待当前批次返回后逐人处理。并发提交不保证同时成功。</p><p id="camera-preferences-error" class="inline-error" role="alert"></p></div><div class="panel-actions"><button class="button primary" type="submit">保存扫码设置</button></div></form>`;
+  return `<form id="camera-preferences-form" class="panel"><div class="panel-header"><div><h3>扫码签到</h3><p class="subheading">保存后在下一次启动扫码时生效</p></div></div><div class="panel-body"><div class="field-grid"><div class="field"><label for="camera-concurrency">扫码签到并发数</label><input id="camera-concurrency" name="camera_concurrency" type="number" min="1" max="20" step="1" value="${esc(value.camera_concurrency??5)}" required><small>默认 5，范围 1～20；表示同一队列最多同时提交的用户数。</small></div><div class="field"><label for="camera-scan-interval">两次识别间隔（秒）</label><input id="camera-scan-interval" name="camera_scan_interval" type="number" min="0.05" max="10" step="0.05" value="${esc(value.camera_scan_interval??0.1)}" required><small>默认 0.1 秒，范围 0.05～10 秒；上一帧未识别完时等待，不叠加解码。</small></div><div class="field"><label for="camera-retry-interval">失败重试间隔（秒）</label><input id="camera-retry-interval" name="camera_retry_interval" type="number" min="0" step="any" value="${esc(value.camera_retry_interval??2.5)}" required><small>默认 2.5 秒，最小 0，无上限；0 表示失败后不额外等待。</small></div></div><p class="setting-note">同一用户保持串行，失败后按设置的间隔重试。需要滑块、位置或本人照片时，等待当前批次返回后逐人处理。并发提交不保证同时成功。</p><p id="camera-preferences-error" class="inline-error" role="alert"></p></div><div class="panel-actions"><button class="button primary" type="submit">保存扫码设置</button></div></form>`;
 }
 document.addEventListener('submit',async event=>{
   if(event.target.id==='camera-preferences-form'){
     event.preventDefault();const form=event.target;
     await busy(form.querySelector('[type="submit"]'),async()=>{
       try{
-        const data=await api('/preferences','PUT',{camera_concurrency:Number(form.elements.camera_concurrency.value),camera_scan_interval:Number(form.elements.camera_scan_interval.value)});
+        const data=await api('/preferences','PUT',{camera_concurrency:Number(form.elements.camera_concurrency.value),camera_scan_interval:Number(form.elements.camera_scan_interval.value),camera_retry_interval:Number(form.elements.camera_retry_interval.value)});
         state.preferences=data.preferences;toast('扫码设置已保存，下次启动扫码时生效');
       }catch(error){$('#camera-preferences-error').textContent=error.message;throw error;}
     });

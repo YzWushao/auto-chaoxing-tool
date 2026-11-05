@@ -90,3 +90,17 @@ def test_camera_preferences_default_save_and_restart(browser, app):
     defaults = browser.get('/bootstrap').json['preferences']
     assert defaults['camera_concurrency'] == 5 and defaults['camera_scan_interval'] == 0.1
     assert defaults['include_group_sign'] is False
+
+
+@pytest.mark.parametrize('interval',[0,0.15,2.5,1000000000000])
+def test_retry_interval_has_no_configured_upper_limit(browser,interval):
+    browser.admin_login()
+    result=browser.send('/preferences',{'camera_retry_interval':interval},'PUT')
+    assert result.status_code==200 and result.json['preferences']['camera_retry_interval']==interval
+    assert browser.get('/bootstrap').json['preferences']['camera_retry_interval']==interval
+
+
+@pytest.mark.parametrize('interval',[-1,True,'0',None,float('nan'),float('inf')])
+def test_invalid_retry_intervals_are_rejected(interval):
+    with pytest.raises(ValueError):
+        validate_preferences({'camera_retry_interval':interval},DEFAULT_PREFERENCES)

@@ -1,11 +1,12 @@
 /* Browser-owned camera session. Only decoded QR text is sent to our sign API. */
 'use strict';
 const cameraSession={running:false,starting:false,generation:0,stream:null,worker:null,timer:null,decodeTimer:null,
-  decoding:false,frameAt:0,latest:null,queue:null,busy:false,scanIntervalMs:100,blocked:[],attention:null,verification:null,requirement:null,proof:null,faceProof:null,faceTarget:null,facePaused:false,mode:'camera',imageAbort:null,message:'选择用户后，点击按钮申请摄像头权限。',scanMessage:'尚未识别签到二维码'};
+  decoding:false,frameAt:0,latest:null,queue:null,busy:false,scanIntervalMs:100,retryIntervalMs:2500,blocked:[],attention:null,verification:null,requirement:null,proof:null,faceProof:null,faceTarget:null,facePaused:false,mode:'camera',imageAbort:null,message:'选择用户后，点击按钮申请摄像头权限。',scanMessage:'尚未识别签到二维码'};
 
 function newCameraQueue(accounts){
   const c=cameraSession,p=state.preferences||{},interval=Number(p.camera_scan_interval??0.1);
   c.queue=new SignCameraQueue.Queue(accounts,p.camera_concurrency??5);
+  c.retryIntervalMs=Number.isFinite(p.camera_retry_interval)&&p.camera_retry_interval>=0?p.camera_retry_interval*1000:2500;
   c.scanIntervalMs=Number.isFinite(interval)&&interval>=0.05&&interval<=10?Math.round(interval*1000):100;
 }
 
@@ -194,7 +195,7 @@ async function submitCameraAccount(entry,qr,generation,q){
       // A lost HTTP response can mean the platform already accepted the request.
       if(!error.status||error.status===401||error.status===403)closeSignCamera('连接或控制台会话异常，已停止；请核对结果后重新开始。');
     }
-    entry.retryAt=Date.now()+2500;
+    entry.retryAt=Date.now()+c.retryIntervalMs;
   }
   renderCameraStatus();
 }

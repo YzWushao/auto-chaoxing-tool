@@ -104,5 +104,9 @@ const challenge=id=>Object.assign(new Error('滑块验证'),{status:409,code:'ve
   assert.equal(defaults.requests.length,2);assert.ok(defaults.delays.includes(100));
   const timing=harness(2,{camera_concurrency:2,camera_scan_interval:0.25});await timing.get('startSignCamera()');timing.frame();
   assert.equal(timing.requests.length,2);assert.ok(timing.delays.includes(250));
+  const immediate=harness(1,{camera_retry_interval:0});await immediate.get('startSignCamera()');immediate.frame();
+  immediate.pending[0].reject(failure());await flush();immediate.frame('NEW_FRAME');
+  assert.equal(immediate.requests.length,2,'Zero retry delay must allow the next fresh frame');
+  immediate.get('closeSignCamera()');immediate.pending[1].resolve({message:'完成'});await flush();
   console.log('camera concurrency contract passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

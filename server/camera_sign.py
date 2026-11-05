@@ -42,7 +42,7 @@ class CameraSignService:
         self.discovery = {}
         self.last_attempt = {}
 
-    def submit(self, owner, account_id, raw, verification_id=None, location=None, face_id=None):
+    def submit(self, owner, account_id, raw, verification_id=None, location=None, face_id=None, retry_interval=None):
         activity_id, enc = qr_parameters(raw)
         key = (owner, account_id)
         with self.signing.locks[account_id]:
@@ -50,8 +50,10 @@ class CameraSignService:
             if self.signing.store.signed(owner, account_id, activity_id):
                 return {'message': '该活动已完成，无需重复提交', 'duplicate': True, 'activity_id': activity_id}
             now = time.monotonic()
-            if now - self.last_attempt.get(key, -100) < 2:
-                raise CameraRateLimit('请稍候再重试，单个用户的请求至少间隔 2 秒')
+            if retry_interval is None:
+                retry_interval = self.signing.store.preferences(self.signing.preference_owner)['camera_retry_interval']
+            if key in self.last_attempt and now - self.last_attempt[key] < retry_interval:
+                raise CameraRateLimit('请稍候，正在等待设置的扫码失败重试间隔')
             self.last_attempt[key] = now
             enabled = False
             stamp, previous_mode, previous_id, activities, warnings = self.discovery.get(key, (0, None, None, [], []))

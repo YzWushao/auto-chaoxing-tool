@@ -3,7 +3,7 @@ import re
 import math
 
 DEFAULT_PREFERENCES = {'account_label': 'phone_tail', 'include_group_sign': False,
-                       'camera_concurrency': 5, 'camera_scan_interval': 0.1}
+                       'camera_concurrency': 5, 'camera_scan_interval': 0.1, 'camera_retry_interval': 2.5}
 LABEL_MODES = {'phone_tail', 'surname_mask', 'full_name', 'masked_surname', 'surname_tail'}
 COMPOUND_SURNAMES = set('欧阳 司马 上官 诸葛 东方 皇甫 尉迟 公孙 慕容 司徒 司空 夏侯 令狐 宇文 长孙 轩辕 闻人 赫连 澹台 宗政 濮阳 公冶 太史 仲孙 申屠 端木 申公 南宫 万俟'.split())
 
@@ -22,6 +22,13 @@ def validate_preferences(data, current):
     interval = value['camera_scan_interval']
     if type(interval) not in (int, float) or not math.isfinite(interval) or not 0.05 <= interval <= 10:
         raise ValueError('两次识别间隔需要在 0.05～10 秒之间')
+    retry = value['camera_retry_interval']
+    try:
+        valid_retry = type(retry) in (int, float) and retry >= 0 and math.isfinite(retry)
+    except OverflowError:
+        valid_retry = False
+    if not valid_retry:
+        raise ValueError('失败重试间隔需要为大于等于 0 的有限秒数')
     return value
 
 
