@@ -178,6 +178,44 @@ def test_push_only_browser_contract():
     run_node("require('./tests/server_camera_controller.cjs')")
 
 
+def test_twenty_global_signing_slots_are_shared_between_streams(app, monkeypatch):
+    streams = app.extensions['camera_streams']
+    entered = threading.Event()
+    release = threading.Event()
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+
+    def submit(*args, **kwargs):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+            if active == 20:
+                entered.set()
+        try:
+            assert release.wait(8)
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(streams.camera, 'submit', submit)
+    users = [dict(id=str(index), owner='offline', name=str(index)) for index in range(21)]
+    first = streams.start(('offline', 'first'), users[:20], concurrency=20, input_mode='native')
+    second = streams.start(('offline', 'second'), users[20:], concurrency=20, input_mode='native')
+    try:
+        first.native({'qr':QR})
+        second.native({'qr':QR})
+        assert entered.wait(5), 'Twenty sign calls should run concurrently'
+        assert not streams.sign_slots.acquire(blocking=False)
+        assert peak == 20
+    finally:
+        first.finish('stopped', 'test complete')
+        second.finish('stopped', 'test complete')
+        release.set()
+    wait_for(lambda:first.inflight+second.inflight, lambda count:count==0)
+
+
 def test_scoped_queue_records_safe_reason_after_activity_ends(grant, monkeypatch):
     from server.chaoxing import SignRequirement
 

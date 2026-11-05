@@ -231,10 +231,10 @@ class CameraStreams:
         self.camera,self.detector=camera,detector
         self.lock=threading.RLock()
         self.runs={}
-        self.executor=ThreadPoolExecutor(max_workers=5,thread_name_prefix='camera-sign-server')
-        self.sign_slots=threading.BoundedSemaphore(5)
+        self.executor=ThreadPoolExecutor(max_workers=20,thread_name_prefix='camera-sign-server')
+        self.sign_slots=threading.BoundedSemaphore(20)
 
-    def start(self, identity, accounts, concurrency=1, expires=None, **options):
+    def start(self, identity, accounts, concurrency=5, expires=None, **options):
         with self.lock:
             for run in self.runs.values():
                 if run.identity==identity:

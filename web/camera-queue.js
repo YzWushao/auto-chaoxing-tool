@@ -16,10 +16,10 @@
     }catch{return null;}
   }
   class Queue{
-    constructor(accounts,concurrency=1){
+    constructor(accounts,concurrency=5){
       this.entries=[...new Map(accounts.map(a=>[a.id,{id:a.id,name:a.name,status:'pending',attempts:0,failures:0,passFailures:0,rotations:0,retryAt:0,message:'等待扫码'}])).values()];
       this.order=this.entries.map(a=>a.id);this.activityId='';this.inFlight=new Map();
-      this.concurrency=Number.isInteger(concurrency)?Math.max(1,Math.min(5,concurrency)):1;
+      this.concurrency=Number.isInteger(concurrency)?Math.max(1,Math.min(20,concurrency)):5;
     }
     get current(){return this.entries.find(a=>a.id===this.order[0]);}
     get done(){return this.order.length===0;}

@@ -14,7 +14,7 @@ const events={};
 const context=vm.createContext({SignCameraQueue,URL,URLSearchParams,Uint8ClampedArray,Set,Map,Promise,console,AbortController,
   SignQR:{decodeImage:async()=>({raw:'https://mobilelearn.chaoxing.com/?id=902&enc=OFFLINE_ALBUM_TOKEN',preview:'data:image/png;base64,AAAA'})},
   Date:class extends Date{static now(){return now;}},
-  state:{page:'sign-camera',accounts:[{id:'a',name:'甲'},{id:'b',name:'乙'}]},
+  state:{page:'sign-camera',preferences:{camera_concurrency:1},accounts:[{id:'a',name:'甲'},{id:'b',name:'乙'}]},
   window:{isSecureContext:true,addEventListener:(name,fn)=>events['window:'+name]=fn},
   navigator:{mediaDevices:{getUserMedia:async constraints=>{permissions++;assert.equal(constraints.audio,false);return stream();}}},
   document:{hidden:false,addEventListener:(name,fn)=>events[name]=fn,createElement:()=>({getContext:()=>({drawImage(){},getImageData:()=>({data:new Uint8ClampedArray(64)})})})},
@@ -44,7 +44,7 @@ const frame=(worker,text)=>{get(`cameraSession.frameAt=${now}`);worker.onmessage
   frame(worker,qr('OFFLINE_FIRST_TOKEN'));
   assert.equal(requests.length,1);assert.match(requests[0].path,/\/a\/camera-sign$/);
   frame(worker,qr('OFFLINE_CHANGED_TOKEN'));
-  assert.equal(requests.length,1,'The default concurrency remains one');
+  assert.equal(requests.length,1,'Configured concurrency one remains serial');
   pending[0].resolve({message:'成功'});await flush();now+=1000;
   frame(worker,qr('OFFLINE_LATEST_TOKEN'));
   assert.equal(requests.length,2);assert.match(requests[1].path,/\/b\/camera-sign$/);

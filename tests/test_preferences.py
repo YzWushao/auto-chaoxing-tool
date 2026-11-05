@@ -35,8 +35,31 @@ def test_bad_preferences(data):
         validate_preferences(data,DEFAULT_PREFERENCES)
 
 
+def test_twenty_concurrency_can_be_saved_and_exposed_to_api(browser):
+    browser.admin_login()
+    saved = browser.send('/preferences', {'camera_concurrency':20}, 'PUT')
+    assert saved.status_code == 200
+    assert browser.get('/bootstrap').json['preferences']['camera_concurrency'] == 20
+    schema = browser.get('/access/openapi.json').json
+    value = schema['paths']['/preferences']['put']['requestBody']['content']['application/json']['schema']['properties']['camera_concurrency']
+    assert value['maximum'] == 20 and value['default'] == 5
+
+
+def test_browser_queue_accepts_twenty_and_defaults_to_five():
+    from tests.test_camera_sign import run_node
+    run_node("""
+        const assert = require('node:assert/strict');
+        const {Queue} = require('./web/camera-queue.js');
+        const users = Array.from({length:21}, (_, id) => ({id:String(id), name:String(id)}));
+        assert.equal(new Queue(users).concurrency, 5);
+        const queue = new Queue(users, 20);
+        for (let i = 0; i < 20; i++) assert(queue.begin());
+        assert.equal(queue.begin(), null);
+    """)
+
+
 @pytest.mark.parametrize('data', [
-    {'camera_concurrency': 0}, {'camera_concurrency': 6}, {'camera_concurrency': 1.5},
+    {'camera_concurrency': 0}, {'camera_concurrency': 21}, {'camera_concurrency': 1.5},
     {'camera_concurrency': True}, {'camera_concurrency': '5'},
     {'camera_scan_interval': 0}, {'camera_scan_interval': 10.1},
     {'camera_scan_interval': True}, {'camera_scan_interval': '0.1'},
@@ -51,7 +74,7 @@ def test_camera_preferences_default_save_and_restart(browser, app):
     from server.store import Store
     browser.admin_login()
     preferences = browser.get('/bootstrap').json['preferences']
-    assert preferences['camera_concurrency'] == 1
+    assert preferences['camera_concurrency'] == 5
     assert preferences['camera_scan_interval'] == 0.1
     saved = browser.send('/preferences', {'camera_concurrency': 5, 'camera_scan_interval': 0.25}, 'PUT')
     assert saved.status_code == 200
@@ -65,5 +88,5 @@ def test_camera_preferences_default_save_and_restart(browser, app):
     # An existing installation's older saved preferences receive both defaults.
     store.set_preferences(owner, {'account_label': 'full_name', 'include_group_sign': True})
     defaults = browser.get('/bootstrap').json['preferences']
-    assert defaults['camera_concurrency'] == 1 and defaults['camera_scan_interval'] == 0.1
+    assert defaults['camera_concurrency'] == 5 and defaults['camera_scan_interval'] == 0.1
     assert defaults['include_group_sign'] is False

@@ -84,7 +84,7 @@ Idempotency-Key: qq-message-123-tool-1
 
 位置签到增加 `location_preset`，二维码签到增加 `qr`。首次获取或过期后重新查询活动；接口不会自动假定某个用户参加了任意活动。
 
-连续 JPEG 扫描：先 `POST /camera-stream`，JSON 为 `{"account_ids":["<id>"],"input":"jpeg"}`；获得 `id` 后向 `/camera-stream/{id}/frame` 发送 `Content-Type: image/jpeg` 二进制，每帧最多 768 KB、最大边 1920 像素。查询队列查看结果，结束时 `POST …/stop`。服务器保留最新一帧，仍受全局并发上限 5、采样间隔、账户锁和断流停止约束。API 不读取 QQ 机器人设备的摄像头；可由前端/设备上传，或通过 `/scan-entry` 请用户在网页扫描。
+连续 JPEG 扫描：先 `POST /camera-stream`，JSON 为 `{"account_ids":["<id>"],"input":"jpeg"}`；获得 `id` 后向 `/camera-stream/{id}/frame` 发送 `Content-Type: image/jpeg` 二进制，每帧最多 768 KB、最大边 1920 像素。查询队列查看结果，结束时 `POST …/stop`。服务器保留最新一帧，仍受全局并发上限 20、采样间隔、账户锁和断流停止约束。API 不读取 QQ 机器人设备的摄像头；可由前端/设备上传，或通过 `/scan-entry` 请用户在网页扫描。
 
 部署时使用新版 `deploy/nginx-https.conf.example` 的专用 frame location，它同时覆盖 `/api/camera-stream`、`/api/v1/camera-stream` 和 `/scan-api`，关闭请求落盘缓存，避免 API 上传画面走普通代理缓冲。
 

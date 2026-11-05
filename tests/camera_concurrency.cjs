@@ -101,7 +101,7 @@ const challenge=id=>Object.assign(new Error('滑块验证'),{status:409,code:'ve
   assert.equal(album.tracks.length,0);album.pending.slice(5).forEach(p=>p.resolve({message:'成功'}));await flush();
 
   const defaults=harness(2,{});await defaults.get('startSignCamera()');defaults.frame();
-  assert.equal(defaults.requests.length,1);assert.ok(defaults.delays.includes(100));
+  assert.equal(defaults.requests.length,2);assert.ok(defaults.delays.includes(100));
   const timing=harness(2,{camera_concurrency:2,camera_scan_interval:0.25});await timing.get('startSignCamera()');timing.frame();
   assert.equal(timing.requests.length,2);assert.ok(timing.delays.includes(250));
   console.log('camera concurrency contract passed');
