@@ -107,6 +107,6 @@ def validate_config(data, current):
                 raise ValueError(f"{name} 需要为布尔值")
         if value["study"]["notopen_action"] not in ("retry", "continue", "ask"):
             raise ValueError("无效的关闭章节处理方式")
-        if value["study"]["study_mode"] not in ("duration", "task", "quiz"):
-            raise ValueError("学习模式需要为 duration、task 或 quiz")
+        if value["study"]["study_mode"] not in ("duration", "task"):
+            raise ValueError("学习模式需要为 duration 或 task")
     return value

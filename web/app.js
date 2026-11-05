@@ -204,7 +204,7 @@ function studyPage() {
   const a=current(); if(!a) return heading('刷课中心','连接一个用户后开始。')+empty('请先添加用户','使用手机号或二维码连接超星账号。',button('添加用户','add-account','primary'),'user');
   return heading('刷课中心','为 '+a.name+' 选择课程，查看任务进度和日志。',button('刷课参数','go-study-config','secondary','settings')+button('开始任务','study-start','primary','play'))+
     (a.status==='expired'?'<div class="notice">此用户登录已失效，请点击右上角“＋”重新登录同一账号。</div>':'')+
-    `<div class="columns"><div><section class="panel"><div class="panel-header"><div><h3>目标课程</h3><p class="subheading">课程与班级分别选择，目标仅对当前用户生效</p></div>${button('刷新课程','courses-refresh','secondary small','refresh')}</div><div class="toolbar"><input id="course-search" placeholder="搜索课程或教师" aria-label="搜索课程或教师"><span class="selection-info">已选择 <b id="selection-count">${state.selection[a.id]?.size||0}</b> 门</span></div><div id="course-list">${coursesHTML()}</div><div class="panel-actions"><small>仅运行已保存的目标课程</small>${button('全选 / 清空','courses-toggle','secondary small')}${button('保存目标','courses-save','primary small')}</div></section><section class="panel"><div class="panel-header"><h3>运行日志</h3><small id="log-caption">${state.logJob?'任务 '+esc(state.logJob.slice(0,8)):'选择一条任务查看'}</small></div><div class="log-box" id="job-logs">${state.logJob?'正在读取任务日志…':'任务日志会显示在这里。'}</div><div id="job-prompt"></div></section></div><aside><section class="panel"><div class="panel-header"><h3>当前用户配置</h3><a href="#study-config" class="text-button">编辑 →</a></div><div class="panel-body"><div class="setting-row"><span>学习模式</span><b>${studyModeLabel(a.config.study.study_mode)}</b></div><div class="setting-row"><span>视频倍速</span><b>${esc(a.config.study.speed)} ×</b></div><div class="setting-row"><span>并行课程</span><b>${a.config.study.jobs} 门</b></div><div class="setting-row"><span>API 来源</span><b>${a.config.inherit_api?'全局配置':'用户独立配置'}</b></div><div class="setting-row"><span>题库 / 模型</span><b>${esc((a.config.inherit_api?state.settings.api:a.config.api).provider||'未启用')}</b></div></div></section><section class="panel"><div class="panel-header"><h3>任务队列</h3><small>当前用户</small></div><div id="study-jobs">${jobsHTML(state.jobs.filter(j=>j.account_id===a.id))}</div></section></aside></div>`;
+    `<div class="columns"><div><section class="panel"><div class="panel-header"><div><h3>目标课程</h3><p class="subheading">课程与班级分别选择，目标仅对当前用户生效</p></div>${button('刷新课程','courses-refresh','secondary small','refresh')}</div><div class="toolbar"><input id="course-search" placeholder="搜索课程或教师" aria-label="搜索课程或教师"><span class="selection-info">已选择 <b id="selection-count">${state.selection[a.id]?.size||0}</b> 门</span></div><div id="course-list">${coursesHTML()}</div><div class="panel-actions"><small>仅运行已保存的目标课程</small>${button('全选 / 清空','courses-toggle','secondary small')}${button('保存目标','courses-save','primary small')}</div></section><section class="panel"><div class="panel-header"><h3>运行日志</h3><small id="log-caption">${state.logJob?'任务 '+esc(state.logJob.slice(0,8)):'选择一条任务查看'}</small></div><div class="log-box" id="job-logs">${state.logJob?'正在读取任务日志…':'任务日志会显示在这里。'}</div><div id="job-prompt"></div></section></div><aside><section class="panel"><div class="panel-header"><h3>当前用户配置</h3><a href="#study-config" class="text-button">编辑 →</a></div><div class="panel-body"><div class="setting-row"><span>学习模式</span><b>${a.config.study.study_mode==='task'?'仅完成任务点':'按时长学习'}</b></div><div class="setting-row"><span>视频倍速</span><b>${esc(a.config.study.speed)} ×</b></div><div class="setting-row"><span>并行课程</span><b>${a.config.study.jobs} 门</b></div><div class="setting-row"><span>API 来源</span><b>${a.config.inherit_api?'全局配置':'用户独立配置'}</b></div><div class="setting-row"><span>题库 / 模型</span><b>${esc((a.config.inherit_api?state.settings.api:a.config.api).provider||'未启用')}</b></div></div></section><section class="panel"><div class="panel-header"><h3>任务队列</h3><small>当前用户</small></div><div id="study-jobs">${jobsHTML(state.jobs.filter(j=>j.account_id===a.id))}</div></section></aside></div>`;
 }
 
 function coursesHTML(filter='') {
@@ -228,16 +228,13 @@ function apiFields(config) {
   return `<datalist id="provider-options">${state.schema.providers.map(p=>`<option value="${p}">`).join('')}</datalist><div class="field-grid">${basics.map(field).join('')}</div><details><summary>高级题库参数 · 硅基流动 / LIKE / GO / 手动模式</summary><div class="field-grid">${Object.keys(state.schema.api).filter(k=>!basics.includes(k)).map(field).join('')}</div></details>`;
 }
 
-function studyModeLabel(mode) {
-  return {duration:'按时长学习',task:'仅完成任务点',quiz:'刷题模式'}[mode]||'按时长学习';
-}
 function timingFields(s) {
-  const mode=s.study_mode||'duration';
-  return `<div class="field-grid"><div class="field"><label for="study-mode">学习模式</label><select id="study-mode" name="study.study_mode"><option value="duration" ${mode==='duration'?'selected':''}>按时长学习（推荐）</option><option value="task" ${mode==='task'?'selected':''}>仅完成任务点（上游原逻辑）</option><option value="quiz" ${mode==='quiz'?'selected':''}>刷题模式（仅章节检测 / 作业）</option></select></div><div class="field check-field" id="study-replay-field" ${mode==='quiz'?'hidden':''}><input id="study-replay" type="checkbox" name="study.replay_completed" ${s.replay_completed!==false?'checked':''}><label for="study-replay">从头计时，包含已完成的视频</label></div></div><div class="notice purple" id="timing-notice">${timingNotice(mode)}</div><div class="gap"></div>`;
+  const duration=(s.study_mode||'duration')==='duration';
+  return `<div class="field-grid"><div class="field"><label for="study-mode">学习模式</label><select id="study-mode" name="study.study_mode"><option value="duration" ${duration?'selected':''}>按时长学习（推荐）</option><option value="task" ${!duration?'selected':''}>仅完成任务点（上游原逻辑）</option></select></div><div class="field check-field"><input id="study-replay" type="checkbox" name="study.replay_completed" ${s.replay_completed!==false?'checked':''}><label for="study-replay">从头计时，包含已完成的视频</label></div></div><div class="notice purple" id="timing-notice">${timingNotice(duration)}</div><div class="gap"></div>`;
 }
-function timingNotice(mode) {
-  if(mode==='quiz') return '只处理未完成的章节检测、随堂作业等题目任务，跳过视频、音频、文档、阅读、直播及空页面任务。沿用题库与自动提交设置，未开放章节按现有策略处理。';
-  return mode==='duration'?'按真实经过时间推进并周期上报，任务点提前通过也不会停止计时。1 倍速时，媒体时长约等于运行时长。已完成章节仅重看媒体，不重交已完成的测验。':'保留上游的完成即跳过和快速完成逻辑，可能很快结束。需要增加观看时长时请选择“按时长学习”。';
+
+function timingNotice(duration) {
+  return duration?'按真实经过时间推进并周期上报，任务点提前通过也不会停止计时。1 倍速时，媒体时长约等于运行时长。已完成章节仅重看媒体，不重交已完成的测验。':'保留上游的完成即跳过和快速完成逻辑，可能很快结束。需要增加观看时长时请选择“按时长学习”。';
 }
 
 function creditsPanel() {
@@ -492,7 +489,7 @@ document.addEventListener('click', async event=>{
 
 document.addEventListener('change',event=>{
   if(event.target.name==='api.tikuhai_auth_mode') event.target.closest('form').querySelectorAll('[data-tikuhai-credential]').forEach(field=>{field.hidden=field.dataset.tikuhaiCredential!==(event.target.value==='card'?'tikuhai_card':'tikuhai_api_key');});
-  if(event.target.id==='study-mode') {$('#timing-notice').textContent=timingNotice(event.target.value);$('#study-replay-field').hidden=event.target.value==='quiz';}
+  if(event.target.id==='study-mode') $('#timing-notice').textContent=timingNotice(event.target.value==='duration');
   if(event.target.dataset.course) { const set=state.selection[state.active]; if(event.target.checked) set.add(event.target.dataset.course); else set.delete(event.target.dataset.course); $('#selection-count').textContent=set.size; }
   if(event.target.id==='inherit-api') $('#inherit-notice').classList.toggle('hidden',!event.target.checked);
   if(event.target.id==='sign-kind') { const form=$('#sign-form');delete form.dataset.locationSchool;delete form.dataset.locationPoint;cancelSignQR(); closeSignMap(); state.signMapPoint=null; state.signMapAddress=''; $('#sign-extra-location')?.remove();$('#sign-fields').innerHTML=signFields(event.target.value);applyRequiredSignLocation($('#sign-form')); }

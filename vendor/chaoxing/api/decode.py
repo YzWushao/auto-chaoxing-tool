@@ -155,7 +155,7 @@ def _extract_points_from_chapter(chapter_unit) -> List[Dict[str, Any]]:
     return point_list
 
 
-def decode_course_card(html_text: str, include_completed_media: bool = False, include_quizzes: bool = False) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+def decode_course_card(html_text: str, include_completed_media: bool = False) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     解析任务点列表页面，提取任务点信息
     
@@ -187,7 +187,7 @@ def decode_course_card(html_text: str, include_completed_media: bool = False, in
 
     # 处理所有附件任务
     cards = cards_data.get("attachments", [])
-    job_list = _process_attachment_cards(cards, include_completed_media=include_completed_media, include_quizzes=include_quizzes)
+    job_list = _process_attachment_cards(cards, include_completed_media=include_completed_media)
     if include_completed_media and cards:
         logger.info("章节附件解析：原始附件 {} 个，解析出任务 {} 个", len(cards), len(job_list))
 
@@ -220,7 +220,7 @@ def _extract_job_info(cards_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _process_attachment_cards(cards: List[Dict[str, Any]], include_completed_media: bool = False, include_quizzes: bool = False) -> List[Dict[str, Any]]:
+def _process_attachment_cards(cards: List[Dict[str, Any]], include_completed_media: bool = False) -> List[Dict[str, Any]]:
     """
     处理所有附件任务卡片，强化直播任务识别逻辑
     
@@ -242,8 +242,7 @@ def _process_attachment_cards(cards: List[Dict[str, Any]], include_completed_med
             continue
 
         # 处理无job字段的特殊任务
-        optional_quiz = include_quizzes and str(card.get('type', '')).lower() == 'workid'
-        if card.get("job") is None and not replay_video and not optional_quiz:
+        if card.get("job") is None and not replay_video:
             # 尝试识别阅读任务
             read_job = _process_read_task(card)
             if read_job:

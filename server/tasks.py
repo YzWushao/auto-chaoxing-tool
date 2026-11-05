@@ -75,7 +75,6 @@ class TaskManager:
                                         text=True, encoding="utf-8", errors="replace", bufsize=1, env=env,
                                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 entry = {"process": proc, "owner": owner, "account": account["id"], "stopped": False,
-                         "mode": account["config"]["study"].get('study_mode', 'duration'),
                          "secrets": [c["value"] for c in account["cookies"]] + [api.get(k, "") for k in SECRET_FIELDS]}
                 self.running[job_id] = entry
                 with self.store.connect() as db:
@@ -146,8 +145,6 @@ class TaskManager:
                 self.store.update_account(entry["owner"], entry["account"], status="expired")
                 self.store.event(entry["owner"], entry["account"], "login_expired", "刷课会话已过期，请重新登录")
             labels = {"succeeded": "刷课完成", "partial": "刷课结束，部分章节未完成", "failed": "刷课失败，请查看日志", "cancelled": "刷课已停止"}
-            if entry.get('mode') == 'quiz':
-                labels = {"succeeded":"刷题任务完成", "partial":"刷题结束，部分题目或章节待处理", "failed":"刷题失败，请查看日志", "cancelled":"刷题已停止"}
             self.store.event(entry["owner"], entry["account"], "study_" + state, labels[state])
 
     def stop(self, owner, job_id):

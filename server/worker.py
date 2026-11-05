@@ -15,7 +15,6 @@ from types import MethodType
 from .config import ENGINE, STUDY_DEFAULTS, SECRET_FIELDS
 from .media import timed_study_video
 from .tasks import redact
-from .quiz import process_quiz_chapter
 
 wire = sys.stdout
 output_lock = threading.Lock()
@@ -73,11 +72,6 @@ def run(spec):
     import main as engine
     common = {**STUDY_DEFAULTS, **spec["study"], "use_cookies": True, "username": "", "password": ""}
     client = engine.init_chaoxing(common, spec["api"])
-    quiz_only = common['study_mode'] == 'quiz'
-    if quiz_only:
-        if not getattr(client, 'tiku', None) or client.tiku.DISABLE:
-            raise ValueError('刷题模式需要启用有效题库，请先配置题库和凭证')
-        client.kwargs['quiz_only'] = True
     if not client.login(login_with_cookies=True).get("status"):
         emit("expired")
         raise RuntimeError("登录已失效，请重新登录")
@@ -108,8 +102,6 @@ def run(spec):
         client.kwargs.update(replay_completed_media=common["replay_completed"], media_progress=media_progress)
         client.study_video = MethodType(timed_study_video, client)
         emit("log", message="按时长学习模式：视频按经过时间推进并周期上报，平台已通过也不会提前结束计时")
-    elif quiz_only:
-        emit('log', message='刷题模式：只处理未完成的章节检测和作业题目，按已有题库提交设置运行')
     else:
         emit("log", message="任务点模式：保留上游的已完成跳过与快速完成逻辑，不保证新增观看时长")
     course_points = []
@@ -125,18 +117,9 @@ def run(spec):
         course_ok = True
         for index, point in enumerate(points):
             outcome = "failed"
-            intentional_skip = False
             for attempt in range(3):
                 try:
-                    if quiz_only:
-                        quiz_result = process_quiz_chapter(client, course, point)
-                        if quiz_result in {'done', 'skipped'}:
-                            outcome = quiz_result
-                            intentional_skip = quiz_result == 'skipped'
-                            break
-                        result = engine.ChapterResult.NOT_OPEN if quiz_result == 'blocked' else engine.ChapterResult.ERROR
-                    else:
-                        result = engine.process_chapter(client, course, point, common["speed"])
+                    result = engine.process_chapter(client, course, point, common["speed"])
                     if result == engine.ChapterResult.SUCCESS:
                         outcome = "done"
                         break
@@ -157,8 +140,6 @@ def run(spec):
                     time.sleep(common["retry_interval"])
             with progress_lock:
                 progress[outcome] += 1
-                if intentional_skip:
-                    progress['ignored'] = progress.get('ignored', 0) + 1
                 emit("progress", progress=dict(progress))
             if outcome == "done":
                 completed.append(str(point["id"]))
@@ -166,8 +147,6 @@ def run(spec):
                 course_ok = False
         # A handled chapter is not necessarily complete (e.g. answers only saved).
         # Re-read platform progress before reporting success to the dashboard.
-        if quiz_only:
-            return
         latest = client.get_course_point(course["courseId"], course["clazzId"], course["cpi"])["points"]
         confirmed = {str(p["id"]) for p in latest if p.get("has_finished") or (str(p.get("jobCount")) == "0" and not p.get("need_unlock"))}
         unconfirmed = len(set(completed) - confirmed)
@@ -191,7 +170,7 @@ def run(spec):
         emit("log", level="warning", message="所选课程未返回章节，无法确认任务完成")
         state = "partial"
     else:
-        state = "partial" if progress["failed"] or progress["skipped"] > progress.get('ignored', 0) else "succeeded"
+        state = "partial" if progress["failed"] or progress["skipped"] else "succeeded"
     if common["study_mode"] == "duration" and not any(v["state"] == "completed" and v["played_seconds"] > 0 for v in media.values()):
         emit("log", level="warning", message="本次没有完成音视频计时，不能视为新增了观看时长；请检查课程是否有视频及重看配置")
         state = "partial"
