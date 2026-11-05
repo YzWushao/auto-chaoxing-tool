@@ -18,6 +18,7 @@ SOURCE={'type':'string','enum':['course'],'default':'course'}
 LOCATION=obj({'school':TEXT,'name':TEXT},['school','name'])
 API=obj({k:{'type':'string'} for k in API_DEFAULTS})
 STUDY=obj({k:{'type':'boolean' if type(v) is bool else 'integer' if type(v) is int else 'number' if type(v) is float else 'string'} for k,v in STUDY_DEFAULTS.items()})
+STUDY['properties']['study_mode'] = {'type':'string','enum':['duration','task','quiz']}
 CONFIG=obj({'course_keys':{'type':'array','items':TEXT},'inherit_api':BOOL,'api':API,'study':STUDY})
 POINT=obj({'name':TEXT,'longitude':{'type':'number'},'latitude':{'type':'number'},'coordinate_system':{'enum':['wgs84','gcj02','bd09']}},['name','longitude','latitude','coordinate_system'])
 IMPORTED_POINT=obj({**POINT['properties'],'address':{'type':'string','deprecated':True,'description':'兼容旧 JSON；点位说明不保存，上报使用学校位置'}},['name','longitude','latitude'])

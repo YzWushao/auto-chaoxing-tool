@@ -633,11 +633,15 @@ class Chaoxing:
             cards_params.update({"num": _possible_num})
             _resp = _session.get("https://mooc1.chaoxing.com/mooc-ans/knowledge/cards", params=cards_params)
             if _resp.status_code != 200:
+                if self.kwargs.get('quiz_only', False):
+                    raise RuntimeError('刷题模式读取章节卡片失败，请检查平台连接或登录状态')
                 logger.error(f"未知错误: {_resp.status_code} 正在跳过")
                 logger.error(_resp.text)
                 return [], {}
 
-            if self.kwargs.get("replay_completed_media", False):
+            if self.kwargs.get('quiz_only', False):
+                _job_list, _job_info = decode_course_card(_resp.text, include_quizzes=True)
+            elif self.kwargs.get("replay_completed_media", False):
                 _job_list, _job_info = decode_course_card(_resp.text, include_completed_media=True)
             else:
                 _job_list, _job_info = decode_course_card(_resp.text)
@@ -649,7 +653,7 @@ class Chaoxing:
             job_list += _job_list
             job_info.update(_job_info)
 
-        if not job_list:
+        if not job_list and not self.kwargs.get('quiz_only', False):
             self.study_emptypage(course, point)
 
         logger.trace(f"原始任务点列表内容:\n{_resp.text}")

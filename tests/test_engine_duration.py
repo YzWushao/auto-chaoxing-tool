@@ -41,6 +41,14 @@ def test_full_card_page_with_passed_video_without_job_marker(engine):
     assert engine.decode.decode_course_card(html)[0] == []
 
 
+def test_quiz_mode_includes_optional_work_but_skips_completed_work(engine):
+    pending = {'type':'workid','jobid':'work-1'}
+    completed = {'type':'workid','jobid':'work-2','isPassed':True}
+    assert engine.decode._process_attachment_cards([pending,completed]) == []
+    jobs = engine.decode._process_attachment_cards([pending,completed],include_quizzes=True)
+    assert len(jobs)==1 and jobs[0]['jobid']=='work-1'
+
+
 def test_completed_chapter_replays_media_without_repeating_exam(engine, monkeypatch):
     video = {"type": "video", "jobid": "v1", "objectid": "o1"}
     jobs = [video, dict(video), {"type": "workid", "jobid": "exam1"}, {"type": "document", "jobid": "doc1"}]

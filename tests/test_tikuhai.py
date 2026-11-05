@@ -8,8 +8,9 @@ from server.config import API_DEFAULTS, ENGINE, MASK
 
 
 @pytest.fixture
-def provider(monkeypatch):
+def provider(monkeypatch, tmp_path):
     monkeypatch.syspath_prepend(str(ENGINE))
+    monkeypatch.chdir(tmp_path)
     from api.answer import Tiku
     value = Tiku.get_tiku_from_config({**API_DEFAULTS, 'provider':'TikuHai',
                                      'tikuhai_card':'offline-secret', 'tikuhai_min_interval':'0'})
