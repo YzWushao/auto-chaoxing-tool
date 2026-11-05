@@ -230,6 +230,8 @@ class Tiku(ABC):
     def query(self, q_info: dict) -> Optional[str]:
         if self.DISABLE:
             return None
+        if getattr(self, 'preserve_question_text', False):
+            return self._query(q_info)
 
         # 预处理, 去除【单选题】这样与标题无关的字段
         if not self._is_manual_mode:
@@ -266,6 +268,8 @@ class Tiku(ABC):
     def query_all(self, q_list: list[dict], query_delay: float = 0.0) -> list[Optional[str]]:
         if self.DISABLE:
             return [None] * len(q_list)
+        if getattr(self, 'preserve_question_text', False):
+            return self._query_all(q_list, query_delay=query_delay)
 
         results = [None] * len(q_list)
         pending_indices = []
@@ -471,6 +475,7 @@ class TikuFallback(Tiku):
         super().__init__(config_path)
         self.name = '多题库回退'
         self.providers = providers or []
+        self.preserve_question_text = any(getattr(provider, 'preserve_question_text', False) for provider in self.providers)
         self.skip_answer_validation = True
 
     def _init_tiku(self):
@@ -519,7 +524,7 @@ class TikuFallback(Tiku):
             if provider.DISABLE:
                 continue
 
-            sub_q_list = [q_list[idx] for idx in pending_indices]
+            sub_q_list = [dict(q_list[idx]) for idx in pending_indices]
             try:
                 sub_results = provider.query_all(sub_q_list, query_delay=query_delay)
             except Exception as e:
@@ -1927,7 +1932,14 @@ class DummyTiku(Tiku):
         return None
 
 
+from api.tikuhai import TikuHaiAdapter
+
+
+class TikuHai(TikuHaiAdapter, Tiku):
+    pass
+
 PROVIDER_REGISTRY = {
+    'TikuHai': TikuHai,
     'TikuYanxi': TikuYanxi,
     'TikuGo': TikuGo,
     'TikuLike': TikuLike,

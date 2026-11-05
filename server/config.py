@@ -6,10 +6,10 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE = ROOT / "vendor" / "chaoxing"
-VERSION = "0.16.2"
+VERSION = "0.17.0"
 MASK = "••••••••"
-SECRET_FIELDS = {"tokens", "key", "siliconflow_key", "go_authorization"}
-PROVIDERS = ["TikuYanxi", "TikuLike", "TikuAdapter", "AI", "SiliconFlow", "TikuGo", "TikuManual"]
+SECRET_FIELDS = {"tokens", "key", "siliconflow_key", "go_authorization", "tikuhai_card", "tikuhai_api_key", "tikuhai_channel_key"}
+PROVIDERS = ["TikuHai", "TikuYanxi", "TikuLike", "TikuAdapter", "AI", "SiliconFlow", "TikuGo", "TikuManual"]
 
 
 def template():
@@ -20,6 +20,7 @@ def template():
 
 API_DEFAULTS = template()
 API_DEFAULTS.update(provider="", check_llm_connection="false", submit="false")
+API_DEFAULTS.update(tikuhai_auth_mode="card", tikuhai_api_key="", tikuhai_card="", tikuhai_channel_key="", tikuhai_min_interval="1")
 STUDY_DEFAULTS = dict(speed=1.0, jobs=1, notopen_action="retry", retry_interval=3.0,
                       work_redo_enabled=False, work_max_retries=3, add_learning_count=False, target_count=100,
                       study_mode="duration", replay_completed=True)
@@ -52,7 +53,9 @@ def validate_api(data, current):
         value[key] = str(val).lower() if isinstance(val, bool) else str(val).strip()
     if any(p.strip() not in PROVIDERS for p in value["provider"].split(",") if p.strip()):
         raise ValueError("不支持的题库类型")
-    for key in ("delay", "cover_rate", "min_interval_seconds", "go_min_interval", "go_retry_backoff"):
+    if value["tikuhai_auth_mode"] not in {"card", "api"}:
+        raise ValueError("题库海认证模式需要选择卡密或个人 API Key")
+    for key in ("delay", "cover_rate", "min_interval_seconds", "go_min_interval", "go_retry_backoff", "tikuhai_min_interval"):
         number = float(value[key])
         if not math.isfinite(number) or number < 0 or (key == "cover_rate" and number > 1):
             raise ValueError(f"{key} 数值超出范围")

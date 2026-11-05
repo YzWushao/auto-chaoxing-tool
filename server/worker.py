@@ -12,7 +12,7 @@ import threading
 import time
 from types import MethodType
 
-from .config import ENGINE, STUDY_DEFAULTS
+from .config import ENGINE, STUDY_DEFAULTS, SECRET_FIELDS
 from .media import timed_study_video
 from .tasks import redact
 
@@ -55,7 +55,7 @@ def ask(prompt=""):
 def run(spec):
     global secret_values
     secret_values = [c["value"] for c in spec["cookies"]]
-    secret_values += [v for k, v in spec["api"].items() if k in {"tokens", "key", "siliconflow_key", "go_authorization"} and v]
+    secret_values += [v for k, v in spec["api"].items() if k in SECRET_FIELDS and v]
     os.chdir(spec["directory"])
     sys.path.insert(0, str(ENGINE))
     sys.stdout = sys.stderr = Output()

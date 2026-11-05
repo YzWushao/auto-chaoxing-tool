@@ -9,7 +9,8 @@ const titles = {overview:'总览',study:'刷课中心','study-config':'刷课参
 const jobLabels = {queued:'排队中',running:'运行中',waiting:'等待输入',stopping:'正在停止',succeeded:'已完成',partial:'部分完成',failed:'失败',cancelled:'已停止',interrupted:'已中断'};
 const kindLabels = {normal:'普通签到',gesture:'手势签到',qr:'二维码签到',location:'位置签到',photo:'拍照签到',code:'签到码'};
 const labels = {provider:'题库 / API 提供方',endpoint:'API Endpoint',key:'API Key',model:'模型名称',tokens:'题库 Token',submit:'自动提交章节检测',cover_rate:'最低题库覆盖率',delay:'题目查询间隔（秒）',check_llm_connection:'启动时检查 AI 连接',min_interval_seconds:'AI 请求间隔（秒）',http_proxy:'代理地址',likeapi_search:'LIKE 联网搜索',likeapi_vision:'LIKE 视觉能力',likeapi_model:'LIKE 模型',likeapi_retry:'LIKE 自动重试',likeapi_retry_times:'LIKE 重试次数',url:'TikuAdapter 服务地址',go_authorization:'GO 题库授权 Token',go_min_interval:'GO 请求间隔（秒）',go_retry_times:'GO 重试次数',go_retry_backoff:'GO 退避基数',siliconflow_key:'硅基流动 API Key',siliconflow_model:'硅基流动模型',siliconflow_endpoint:'硅基流动 Endpoint',manual_mode_default:'手动答题模式',manual_mode_separator:'手动答题分隔符',true_list:'判断题正确词表',false_list:'判断题错误词表'};
-const secrets = new Set(['key','tokens','siliconflow_key','go_authorization']);
+Object.assign(labels,{tikuhai_auth_mode:'题库海认证模式',tikuhai_card:'题库海卡密',tikuhai_api_key:'题库海个人 API Key',tikuhai_channel_key:'题库海渠道 Key（可选）',tikuhai_min_interval:'题库海查询间隔（秒）'});
+const secrets = new Set(['key','tokens','siliconflow_key','go_authorization','tikuhai_card','tikuhai_api_key','tikuhai_channel_key']);
 const state = {csrf:'',authenticated:false,accounts:[],jobs:[],events:[],settings:{api:{}},schema:{api:{},providers:[]},active:'',page:'overview',courses:{},activities:{},selection:{},logJob:null,logAfter:0,logLoading:false,qrTimer:null,qrId:null,pollBusy:false};
 const current = () => state.accounts.find(a => a.id === state.active);
 const date = stamp => stamp ? new Date(stamp).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}) : '—';
@@ -215,13 +216,14 @@ function coursesHTML(filter='') {
 }
 
 function apiFields(config) {
-  const basics=['provider','endpoint','key','model','tokens','submit','cover_rate','min_interval_seconds'];
+  const basics=['provider','tikuhai_auth_mode','tikuhai_card','tikuhai_api_key','tikuhai_min_interval','endpoint','key','model','tokens','submit','cover_rate','min_interval_seconds'];
   const field=key=>{
     const value=config[key] ?? state.schema.api[key] ?? '';
     let input;
-    if(['true','false'].includes(state.schema.api[key])) input=`<select name="api.${key}" id="api-${key}"><option value="false" ${value==='false'?'selected':''}>关闭</option><option value="true" ${value==='true'?'selected':''}>开启</option></select>`;
+    if(key==='tikuhai_auth_mode') input=`<select name="api.${key}" id="api-${key}"><option value="card" ${value==='card'?'selected':''}>使用卡密</option><option value="api" ${value==='api'?'selected':''}>使用个人 API Key</option></select>`;
+    else if(['true','false'].includes(state.schema.api[key])) input=`<select name="api.${key}" id="api-${key}"><option value="false" ${value==='false'?'selected':''}>关闭</option><option value="true" ${value==='true'?'selected':''}>开启</option></select>`;
     else input=`<input id="api-${key}" name="api.${key}" type="${secrets.has(key)?'password':'text'}" value="${esc(value)}" ${key==='provider'?'list="provider-options"':''} placeholder="${key==='provider'?'留空表示不启用题库':secrets.has(key)?'未设置；填写后保存':key==='endpoint'?'https://example.com/v1':'按需填写'}" autocomplete="${secrets.has(key)?'new-password':'off'}">`;
-    return `<div class="field"><label for="api-${key}">${esc(labels[key]||key)}</label>${input}${key==='provider'?'<small>支持英文逗号分隔多个提供方，按顺序回退。</small>':key==='key'||key==='tokens'?'<small>已保存的密钥显示为圆点；清空后保存可移除。</small>':''}</div>`;
+    return `<div class="field" ${['tikuhai_card','tikuhai_api_key'].includes(key)?`data-tikuhai-credential="${key}" ${(config.tikuhai_auth_mode||'card')===(key==='tikuhai_card'?'card':'api')?'':'hidden'}`:''}><label for="api-${key}">${esc(labels[key]||key)}</label>${input}${key==='provider'?'<small>支持英文逗号分隔多个提供方，按顺序回退。</small>':key==='key'||key==='tokens'?'<small>已保存的密钥显示为圆点；清空后保存可移除。</small>':''}${['tikuhai_card','tikuhai_api_key'].includes(key)?'<small>题库类型填 TikuHai；使用精确搜题，按题库海规则计费。已保存凭证显示为圆点。</small>':key==='tikuhai_channel_key'?'<small>普通卡密或个人 Key 可留空；渠道接入时填写。</small>':''}</div>`;
   };
   return `<datalist id="provider-options">${state.schema.providers.map(p=>`<option value="${p}">`).join('')}</datalist><div class="field-grid">${basics.map(field).join('')}</div><details><summary>高级题库参数 · 硅基流动 / LIKE / GO / 手动模式</summary><div class="field-grid">${Object.keys(state.schema.api).filter(k=>!basics.includes(k)).map(field).join('')}</div></details>`;
 }
@@ -486,6 +488,7 @@ document.addEventListener('click', async event=>{
 });
 
 document.addEventListener('change',event=>{
+  if(event.target.name==='api.tikuhai_auth_mode') event.target.closest('form').querySelectorAll('[data-tikuhai-credential]').forEach(field=>{field.hidden=field.dataset.tikuhaiCredential!==(event.target.value==='card'?'tikuhai_card':'tikuhai_api_key');});
   if(event.target.id==='study-mode') $('#timing-notice').textContent=timingNotice(event.target.value==='duration');
   if(event.target.dataset.course) { const set=state.selection[state.active]; if(event.target.checked) set.add(event.target.dataset.course); else set.delete(event.target.dataset.course); $('#selection-count').textContent=set.size; }
   if(event.target.id==='inherit-api') $('#inherit-notice').classList.toggle('hidden',!event.target.checked);
