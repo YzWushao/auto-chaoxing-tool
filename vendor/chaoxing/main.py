@@ -245,7 +245,9 @@ def init_chaoxing(common_config, tiku_config, config_path=None):
                     raise RuntimeError('用户取消运行')
                 logger.info('用户选择继续运行...')
 
-    query_delay = tiku_config.get("delay", 0)
+    # Web/INI configuration stores API fields as strings; the query loop needs
+    # a numeric delay for comparisons and time.sleep.
+    query_delay = float(tiku_config.get("delay", 0))
 
     # 章节检测答错后允许的最大重做次数（答错时反馈给AI并重新提交，直到全部正确）
     work_max_retries = common_config.get("work_max_retries", 3)
