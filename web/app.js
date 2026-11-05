@@ -261,8 +261,11 @@ function configPage() {
     `<form id="study-config-form"><section class="panel"><div class="panel-header"><h3>学习参数</h3><span class="badge purple">${esc(a.name)} 专属</span></div><div class="panel-body">${timingFields(s)}<div class="field-grid"><div class="field"><label for="study-speed">视频倍速</label><input id="study-speed" name="study.speed" type="number" min="1" max="2" step="0.1" value="${s.speed}" required><small>范围 1–2，默认 1 倍。</small></div><div class="field"><label for="study-jobs">并行课程数</label><input id="study-jobs" name="study.jobs" type="number" min="1" max="8" value="${s.jobs}" required><small>同一课程内按章节顺序执行，范围 1–8。</small></div><div class="field"><label for="study-notopen">未开放章节</label><select id="study-notopen" name="study.notopen_action">${[['retry','重试'],['continue','跳过并记录'],['ask','在日志区询问我']].map(([v,l])=>`<option value="${v}" ${s.notopen_action===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="field"><label for="study-interval">重试等待（秒）</label><input id="study-interval" name="study.retry_interval" type="number" min="0.5" max="600" step="0.5" value="${s.retry_interval}" required></div><div class="field"><label for="study-work-retries">章节检测最大重做次数</label><input id="study-work-retries" name="study.work_max_retries" type="number" min="0" max="10" value="${s.work_max_retries}" required></div><div class="field"><label for="study-count">章节学习次数目标</label><input id="study-count" name="study.target_count" type="number" min="1" max="10000" value="${s.target_count}" required></div><div class="field check-field"><input id="study-redo" name="study.work_redo_enabled" type="checkbox" ${s.work_redo_enabled?'checked':''}><label for="study-redo">允许章节检测答错后重做</label></div><div class="field check-field"><input id="study-add-count" name="study.add_learning_count" type="checkbox" ${s.add_learning_count?'checked':''}><label for="study-add-count">任务完成后增加章节学习次数</label></div></div></div></section><section class="panel"><div class="panel-header"><div><h3>题库与 API</h3><p class="subheading">课程目标始终独立；API 可继承全局或为此用户单独设置</p></div></div><div class="panel-body"><div class="check-field"><input type="checkbox" name="inherit_api" id="inherit-api" ${a.config.inherit_api?'checked':''}><label for="inherit-api">使用全局 API 配置</label></div><div class="gap"></div><div id="inherit-notice" class="notice purple ${a.config.inherit_api?'':'hidden'}">此用户当前使用全局配置。下方独立配置会保留，关闭继承后生效。</div><div id="own-api-fields">${apiFields(a.config.api)}</div></div><div class="panel-actions"><small>修改仅影响下次启动的任务</small><button type="submit" class="button primary">保存刷课配置</button></div></section></form>`;
 }
 
+function historyLogsPanel() {
+  return `<section class="panel"><div class="panel-header"><h3>历史运行日志</h3></div><div class="panel-body"><p class="setting-note">清空所有用户已结束任务的运行日志，此操作无法撤销。</p><button type="button" class="button secondary" data-action="clear-history-logs">清空历史日志记录</button></div></section>`;
+}
 function settingsPage() {
-  return heading('设置','管理扫码参数、开放 API、管理员凭据、预设点位、地图服务、QQ 签到与全局配置。')+preferencesPanel()+cameraPreferencesPanel()+apiAccessPanel()+deviceSettingsEntry()+presetsSettingsEntry()+napcatPanel()+mapSettingsPanel()+adminPanel()+
+  return heading('设置','管理扫码参数、开放 API、管理员凭据、预设点位、地图服务、QQ 签到与全局配置。')+preferencesPanel()+cameraPreferencesPanel()+apiAccessPanel()+deviceSettingsEntry()+presetsSettingsEntry()+napcatPanel()+mapSettingsPanel()+historyLogsPanel()+adminPanel()+
     `<div class="settings-grid"><form id="global-api-form" class="panel"><div class="panel-header"><div><h3>全局 API 配置</h3><p class="subheading">所有开启“使用全局 API 配置”的用户将自动继承</p></div><span class="badge purple">默认配置</span></div><div class="panel-body">${apiFields(state.settings.api)}</div><div class="panel-actions"><small>密钥加密保存，仅返回脱敏信息</small><button type="submit" class="button primary">保存全局配置</button></div></form><aside><section class="panel"><div class="panel-header"><h3>扩展计划</h3><span class="badge">TODO</span></div><div class="panel-body">${state.integrations.map(i=>`<div class="integration"><span class="integration-icon">${icon('link')}</span><div><h3>${esc(i.name)} <span class="badge">待接入</span></h3><p>${esc(i.description)}</p></div></div>`).join('')}</div></section><section class="panel"><div class="panel-header"><h3>服务信息</h3></div><div class="panel-body"><div class="setting-row"><span>当前版本</span><b>${esc(state.system.version)}</b></div><div class="setting-row"><span>会话隔离</span><b>按用户隔离</b></div><div class="setting-row"><span>凭据存储</span><b>本地加密</b></div><div class="setting-row"><span>OCR 扩展</span><b>${state.system.ocr?'已安装':'未安装（可选）'}</b></div><p class="setting-note">NapCat 仅接入授权 QQ 的私聊签到会话；第三方推送、辅助登录和主动状态通知仍未接入。登录失效、任务结果等事件已经在“最近动态”中记录。</p></div></section></aside></div>${creditsPanel()}`;
 }
 
@@ -414,7 +417,7 @@ async function loadLogs() {
     if(!state.logAfter) box.textContent='';
     const bottom=box.scrollHeight-box.scrollTop-box.clientHeight<80;
     for(const line of result.logs) { const el=document.createElement('span'); el.className='log-line '+(line.level==='error'?'error':line.level==='warning'?'warning':''); el.textContent=`${date(line.created_at)}  ${line.message}`; box.append(el); state.logAfter=line.id; }
-    if(!box.childNodes.length) box.textContent='等待任务输出…';
+    if(!box.childNodes.length) box.textContent=activeStates.has(state.jobs.find(job=>job.id===id)?.state)?'等待任务输出…':'暂无日志记录';
     while(box.children.length>2000) box.firstElementChild.remove();
     if(bottom) box.scrollTop=box.scrollHeight;
     updatePrompt();
@@ -454,6 +457,14 @@ document.addEventListener('click', async event=>{
   if(action==='account-login-close') return closeAccountLogin();
   if(action==='admin-close') return closeAdminLogin();
   if(action==='modal-close') return $('#modal').close();
+  if(action==='clear-history-logs') {
+    if(!window.confirm('清空所有用户已结束任务的历史运行日志？此操作无法撤销。')) return;
+    return busy(target,async()=>{
+      const result=await api('/logs/history','DELETE',{confirm:true});
+      state.logAfter=0;
+      toast(`已清空 ${result.deleted} 条历史日志`);
+    });
+  }
   if(action==='sign-open') return openSign(id);
   if(action==='presets-import') return $('#school-presets-file').click();
   if(action==='presets-apply') return applyLocationPreset();

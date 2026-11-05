@@ -702,6 +702,13 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def logs(job_id):
         return jsonify(logs=tasks.logs(owned_job(job_id)["owner"], job_id, int(request.args.get("after", 0))))
 
+    @app.delete('/api/logs/history')
+    def clear_history_logs():
+        data = body()
+        if set(data) != {'confirm'} or data['confirm'] is not True:
+            raise ValueError('请确认清空历史运行日志')
+        return jsonify(ok=True, deleted=tasks.clear_history_logs(g.owners))
+
     @app.post("/api/jobs/<job_id>/stop")
     def stop(job_id):
         tasks.stop(owned_job(job_id)["owner"], job_id)

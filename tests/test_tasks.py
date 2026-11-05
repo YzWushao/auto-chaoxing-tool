@@ -82,3 +82,25 @@ def test_store_recovers_interrupted_jobs(tmp_path):
 
 def test_redaction():
     assert "top-secret" not in redact("token=top-secret password='top-secret'", ["top-secret"])
+
+
+def test_clear_history_logs_requires_confirmation_and_preserves_active_and_foreign_jobs(app,browser):
+    assert browser.send('/logs/history',{'confirm':True},'DELETE').status_code==401
+    browser.admin_login()
+    store=app.extensions['store']
+    owner=store.administrator()['owner']
+    with store.connect() as db:
+        for job_id,job_owner,state in [('old',owner,'succeeded'),('active',owner,'running'),('foreign','outside','failed')]:
+            db.execute('INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?)',
+                       (job_id,job_owner,'account',state,'{}','now',None,None))
+            db.execute('INSERT INTO logs(job_id,level,message,created_at) VALUES (?,?,?,?)',
+                       (job_id,'info','historical entry','now'))
+    for invalid in [{},{'confirm':False},{'confirm':1},{'confirm':True,'owner':'outside'}]:
+        assert browser.send('/logs/history',invalid,'DELETE').status_code==400
+    assert browser.client.delete('/api/logs/history',json={'confirm':True}).status_code==403
+    result=browser.send('/logs/history',{'confirm':True},'DELETE')
+    assert result.status_code==200 and result.json['deleted']==1
+    with store.connect() as db:
+        assert {row[0] for row in db.execute('SELECT job_id FROM logs')}=={'active','foreign'}
+        assert db.execute('SELECT count(*) FROM jobs').fetchone()[0]==3
+    assert browser.send('/logs/history',{'confirm':True},'DELETE').json['deleted']==0

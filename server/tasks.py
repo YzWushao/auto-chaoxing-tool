@@ -55,6 +55,19 @@ class TaskManager:
             db.execute("INSERT INTO logs(job_id,level,message,created_at) VALUES (?,?,?,?)", (job_id, level, message, now()))
             db.execute("DELETE FROM logs WHERE job_id=? AND id NOT IN (SELECT id FROM logs WHERE job_id=? ORDER BY id DESC LIMIT 2000)", (job_id, job_id))
 
+    def clear_history_logs(self, owners):
+        if not owners:
+            return 0
+        placeholders = ','.join('?' for _ in owners)
+        active_placeholders = ','.join('?' for _ in ACTIVE)
+        with self.store.connect() as db:
+            result = db.execute(
+                f'DELETE FROM logs WHERE job_id IN (SELECT id FROM jobs WHERE owner IN ({placeholders}) '
+                f'AND state NOT IN ({active_placeholders}))',
+                (*owners, *ACTIVE),
+            )
+            return result.rowcount
+
     def start(self, owner, account, api, courses):
         with self.lock:
             if any(r["owner"] == owner and r["account"] == account["id"] for r in self.running.values()):

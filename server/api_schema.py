@@ -66,6 +66,7 @@ WRITES={
  'study':('study:write','按该账户已保存目标启动刷课后台任务',obj()),
  'stop':('study:write','停止指定刷课任务',obj()),
  'answer':('study:write','向等待输入的刷课任务提交内容',obj({'answer':TEXT},['answer'])),
+ 'clear_history_logs':('study:write','清空所有托管用户已结束任务的历史运行日志',obj({'confirm':{'const':True}},['confirm'])),
  'scan_entry':('sign:write','为已授权 QQ 创建固定扫码地址与8位数字验证码（不发送消息）',obj({'qq':TEXT},['qq'])),
 }
 
