@@ -44,7 +44,7 @@ def test_camera_endpoint_requires_admin_csrf_and_managed_account(browser, app):
     assert browser.send('/accounts/not-owned/camera-sign', {'qr': QR}).status_code == 404
     assert browser.send(url, {'qr': QR, 'pixels': 'not-accepted'}).status_code == 400
     headers = browser.client.get('/').headers
-    assert headers['Permissions-Policy'] == 'camera=(self), microphone=()'
+    assert headers['Permissions-Policy'] == 'camera=(self), geolocation=(self), microphone=()'
     assert "media-src 'self' blob:" in headers['Content-Security-Policy']
 
 

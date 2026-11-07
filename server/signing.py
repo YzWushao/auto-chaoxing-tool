@@ -82,6 +82,8 @@ class SignService:
                 live = next((a for a in client.activities([selected['course']]) if a['id'] == activity_id), None)
                 if not live:
                     raise ValueError('该签到活动已结束或不再可用')
+                if supplied.get('_detected_phase') and live.get('phase','in') != supplied['_detected_phase']:
+                    raise ValueError('签到或签退阶段已变化，请刷新活动后重试')
                 # QQ cannot silently reuse a stale activity mode after it changes.
                 if supplied.get('_detected_kind') and (live['kind'] != supplied['_detected_kind'] or live.get('photo')
                         or selected['kind'] != supplied['_detected_kind']):

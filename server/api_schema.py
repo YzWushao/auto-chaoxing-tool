@@ -32,6 +32,8 @@ MAP=obj({'provider':{'enum':['osm','amap']},'key':TEXT,'security_code':TEXT,'fre
 # All writes are explicitly classified. Registering a new UI write without a
 # reviewed API contract fails at startup instead of silently granting it.
 WRITES={
+ 'batch_sign_start':('sign:write','为明确选定的账户提交同一个普通、位置、手势或签到码活动',obj({'account_ids':{'type':'array','items':TEXT,'minItems':1,'maxItems':200},'activity_id':TEXT,'kind':{'enum':['normal','location','gesture','code']},'phase':{'enum':['in','out'],'default':'in'},'code':TEXT,'location':LOCATION,'device_location':DEVICE_LOCATION},['account_ids','activity_id','kind'])),
+ 'batch_sign_stop':('sign:write','停止本密钥的批量签到，已发出的请求仍可能返回',obj()),
  'admin_credentials':('admin:write','修改管理员凭据并撤销全部登录及 API 密钥',obj({'username':TEXT,'current_password':TEXT,'new_password':TEXT},['current_password'])),
  'login_password':('accounts:write','通过手机号和密码添加或重新登录超星账户',obj({'phone':TEXT,'password':TEXT,'account_id':TEXT},['phone','password'])),
  'qr_create':('accounts:write','生成超星登录二维码，返回图像与轮询 ID',obj()),
@@ -73,6 +75,8 @@ WRITES={
 }
 
 READS={
+ 'batch_sign_current':'读取本操作身份最近的批量签到及结果',
+ 'batch_sign_status':'读取本操作身份的指定批量签到及结果',
  'health':'检查服务版本和健康状态','bootstrap':'读取控制台初始化数据（凭据脱敏）',
  'accounts_list':'列出全部托管账户和全局显示昵称','account_detail':'读取指定账户及配置（凭据脱敏）',
  'preferences_read':'读取全局显示及扫码参数','settings_read':'读取脱敏的全局题库 API 配置',
@@ -93,7 +97,7 @@ def install_external_api(app, access):
             name=rule.endpoint
             if method=='GET':
                 if name not in READS:raise RuntimeError('Missing API read contract: '+name)
-                scope='settings:write' if name=='map_runtime' else 'sign:write' if name=='camera_stream_status' else 'read'
+                scope='settings:write' if name=='map_runtime' else 'sign:write' if name in {'camera_stream_status','batch_sign_current','batch_sign_status'} else 'read'
                 summary,schema=READS[name],None
             else:
                 if name not in WRITES:raise RuntimeError('Missing API write contract: '+name)

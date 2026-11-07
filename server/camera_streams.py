@@ -238,6 +238,7 @@ class CameraStreams:
         self.camera,self.detector=camera,detector
         self.lock=threading.RLock()
         self.runs={}
+        self.shutdown_hooks=[]
         self.executor=ThreadPoolExecutor(max_workers=20,thread_name_prefix='camera-sign-server')
         self.sign_slots=threading.BoundedSemaphore(20)
 
@@ -262,6 +263,7 @@ class CameraStreams:
             return run
 
     def shutdown(self):
+        for hook in self.shutdown_hooks:hook()
         with self.lock:
             values=list(self.runs.values())
         for run in values:

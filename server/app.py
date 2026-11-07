@@ -99,7 +99,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
         response.headers["Referrer-Policy"] = "no-referrer" if request.path.startswith(('/scan', '/static/scan-link')) else "strict-origin-when-cross-origin"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; media-src 'self' blob:; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-        response.headers['Permissions-Policy'] = 'camera=(self), microphone=()'
+        response.headers['Permissions-Policy'] = 'camera=(self), geolocation=(self), microphone=()'
         if request.path == '/map/amap':
             response.headers['X-Frame-Options']='SAMEORIGIN'
             # AMap's official plugin loader evaluates its downloaded modules.
@@ -211,6 +211,9 @@ def create_app(config=None, client_factory=ChaoxingClient):
     camera_sign = CameraSignService(signing)
     streams = CameraStreams(camera_sign, frames)
     app.extensions['camera_streams'] = streams
+    from .batch_sign import BatchSigns
+    batches = BatchSigns(signing,streams)
+    app.extensions['batch_signs'] = batches
     napcat = NapCatManager(store, signing)
     scan_links = ScanLinks(store, camera_sign, napcat.settings)
     napcat.scan_links = scan_links
@@ -365,6 +368,45 @@ def create_app(config=None, client_factory=ChaoxingClient):
 
     def stream_identity():
         return ('api',g.admin['id'],g.api_key['id']) if g.api_key else ('admin', g.admin['id'], session['browser_id'])
+
+    def batch_authority():
+        if g.api_key:
+            token=request.headers.get('Authorization','')[7:]
+            def authorized():
+                record=store.api_token(token)
+                if not record or 'sign:write' not in record['key']['scopes']:raise ValueError('API 签到权限已失效')
+        else:
+            sid=session['admin_sid']
+            def authorized():
+                if not store.admin_session(sid):raise ValueError('管理员会话已失效')
+        return authorized
+
+    @app.post('/api/batch-sign')
+    def batch_sign_start():
+        data=body();ids=data.get('account_ids')
+        if not isinstance(ids,list) or not 1<=len(ids)<=200 or any(not isinstance(a,str) for a in ids):
+            raise ValueError('请选择需要处理的用户')
+        values=[account(a) for a in dict.fromkeys(ids)]
+        prefs=store.preferences(g.admin['owner'])
+        users=[dict(id=a['id'],owner=a['owner'],name=account_label(a,prefs['account_label'])) for a in values]
+        run=batches.start(stream_identity(),users,data,prefs['camera_concurrency'],batch_authority())
+        return jsonify(run.snapshot())
+
+    @app.get('/api/batch-sign/current')
+    def batch_sign_current():
+        with batches.lock:
+            runs=[r for r in batches.runs.values() if r.identity==stream_identity() and r.expires>time.monotonic()]
+            run=runs[-1] if runs else None
+        return jsonify(run=run.snapshot() if run else None)
+
+    @app.get('/api/batch-sign/<run_id>')
+    def batch_sign_status(run_id):
+        return jsonify(batches.get(stream_identity(),run_id).snapshot())
+
+    @app.post('/api/batch-sign/<run_id>/stop')
+    def batch_sign_stop(run_id):
+        run=batches.get(stream_identity(),run_id);run.stop()
+        return jsonify(run.snapshot())
 
     @app.post('/api/camera-stream')
     def camera_stream_start():

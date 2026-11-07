@@ -45,6 +45,7 @@ function heading(title, subtitle, actions='') { return `<div class="page-heading
 function button(label, action, cls='secondary', symbol='', extra='') { return `<button type="button" class="button ${cls}" data-action="${action}" ${extra}>${symbol?icon(symbol):''}${esc(label)}</button>`; }
 
 function showLogin() {
+  resetBulkSign();
   closeSignFace();
   closeSignCamera('控制台会话已结束，摄像头已关闭。');
   stopServerCamera('',true);
@@ -122,6 +123,7 @@ async function bootstrap() {
 }
 
 function resetConsole() {
+  resetBulkSign();
   closeSignFace();
   closeSignCamera('控制台会话已结束，摄像头已关闭。');
   stopServerCamera('',true);
@@ -163,6 +165,7 @@ function render() {
   if(state.page==='sign-camera')renderServerCameraState();
   if(state.page==='devices')void loadDeviceBindings();
   if(state.page==='settings')void loadApiAccess();
+  if(state.page==='sign'){bulkResults();void restoreBulkSign();}
 }
 
 function overviewPage() {
@@ -277,10 +280,10 @@ function accountsPage() {
 
 function signPage() {
   const a=current(); if(!a) return accountsPage(); const source=currentSignSource(),key=signActivityKey(a.id),list=state.activities[key];
-  const prefix=heading(source==='group'?'群聊签到':'签到中心','使用 '+a.name+' 的统一登录会话，读取'+(source==='group'?'超星群聊签到。':'课程活动。'),button('刷新活动','sign-refresh','primary','refresh'))+signSourceTabs()+cameraSignEntry()+signWarnings(key);
+  const prefix=heading('签到中心','二维码、定位、手势和普通签到均可为所选用户统一处理。')+bulkSignPanel()+`<div class="page-heading"><div><h2>单用户签到 · ${esc(a.name)}</h2><p>用于单独操作及补充滑块、人脸、拍照等要求。</p></div>${button('刷新当前用户','sign-refresh','secondary','refresh')}</div>`+signSourceTabs()+signWarnings(key);
   if(state.signWarnings?.[key]?.length&&!list?.length)return prefix;
   return prefix+
-    `<div class="notice purple">选择活动后填写所需参数并提交。也可在设置启用 QQ 签到，通过 NapCat 私聊选择用户、选择活动并上传二维码或选择预设点位。</div>`+
+    `<div class="notice purple">选择下方活动可单独处理当前用户；上方批量入口可一次处理所有适用用户。</div>`+
     (!list?`<section class="panel">${empty('查看当前签到活动','点击“刷新活动”，获取当前用户的有效签到列表。','','sign')}</section>`:!list.length?`<section class="panel">${empty('暂时没有进行中的签到','请确认当前用户，或在老师发布签到后刷新。','','sign')}</section>`:`<div class="sign-grid">${list.map(a=>`<article class="sign-card"><div class="card-top"><span class="course-icon">${icon('sign')}</span><span class="badge ${a.signed?'green':'purple'}">${a.signed?'已'+signAction(a):(a.phase==='out'?'签退 · ':'')+esc(kindLabels[a.photo?'photo':a.kind]||'签到活动')}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.course.title)}</p><p>活动编号 ${esc(a.id)}</p>${button(a.signed?'已'+signAction(a):a.kind==='qr'&&!a.photo?'上传二维码 / 填写':'填写并'+signAction(a),'sign-open',a.signed?'secondary':'primary','',`data-id="${esc(a.id)}" ${a.signed?'disabled':''}`)}</article>`).join('')}</div>`);
 }
 

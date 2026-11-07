@@ -66,10 +66,13 @@ def test_invalid_or_stale_device_fixes_are_rejected(field,value):
     with pytest.raises(ValueError):device_location(value_dict,input_mode='native')
 
 
-def test_device_position_is_native_only_exclusive_and_converted(browser,app):
+def test_device_position_supports_jpeg_and_native_but_is_exclusive(browser,app):
     account=browser.login();data=fix()
-    for extras in ({},{'input':'jpeg'},{'input':'native','location':{'school':'missing','name':'missing'}}):
+    for extras in ({'input':'wrong'},{'input':'native','location':{'school':'missing','name':'missing'}}):
         assert browser.send('/camera-stream',{'account_ids':[account['id']],'device_location':data,**extras}).status_code==400
+    jpeg=browser.send('/camera-stream',{'input':'jpeg','account_ids':[account['id']],'device_location':data})
+    assert jpeg.status_code==200
+    browser.send('/camera-stream/'+jpeg.json['id']+'/stop')
     start=browser.send('/camera-stream',{'input':'native','account_ids':[account['id']],'device_location':data})
     assert start.status_code==200
     internal=app.extensions['camera_streams'].runs[start.json['id']].location
@@ -79,14 +82,18 @@ def test_device_position_is_native_only_exclusive_and_converted(browser,app):
     browser.send('/camera-stream/'+start.json['id']+'/stop')
 
 
-def test_device_fix_reaches_only_selected_account_signing(grant,monkeypatch):
+@pytest.mark.parametrize('input_mode',['native','jpeg'])
+def test_device_fix_reaches_only_selected_account_signing(grant,monkeypatch,input_mode):
     client,headers,status=picker(grant);alias=status.json['accounts'][0]['id'];seen=[]
     def sign(client,activity,supplied,name):
         seen.append((client.jar[0]['value'],supplied))
         return 'offline success'
     monkeypatch.setattr(FakeClient,'sign',sign)
-    assert client.post('/scan-api/start',json={'input':'native','account_ids':[alias],'device_location':fix()},headers=headers).status_code==200
-    client.post('/scan-api/qr',json={'qr':QR},headers=headers)
+    assert client.post('/scan-api/start',json={'input':input_mode,'account_ids':[alias],'device_location':fix()},headers=headers).status_code==200
+    if input_mode=='native':client.post('/scan-api/qr',json={'qr':QR},headers=headers)
+    else:
+        from tests.test_server_camera import jpeg,post_frame
+        post_frame(client,'/scan-api/frame',jpeg(),headers)
     result=wait_for(lambda:client.get('/scan-api/status',headers=headers).json,lambda value:value.get('terminal'))
     assert result['state']=='completed' and len(seen)==1
     assert seen[0][0]=='13800000001'

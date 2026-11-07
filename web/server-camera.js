@@ -87,10 +87,10 @@ function scMessage(text){if(sc('server-camera-status'))sc('server-camera-status'
 function renderServerCameraState(data=serverCamera.result){
   const deviceControls=sc('server-camera-device-controls');
   if(deviceControls){
-    const supported=Boolean(window.AndroidScanner?.deviceLocationAvailable);
-    deviceControls.hidden=!supported||!sc('server-camera-report-location')?.checked;
-    if(supported&&!deviceControls.dataset.ready){deviceControls.innerHTML='<label class="camera-switch"><input type="checkbox" id="server-camera-use-device-location">使用设备位置上报</label><p id="server-camera-device-status" class="setting-note">开始扫描时申请安卓定位权限并获取当前位置，仅用于本次扫码；重新开始会重新定位。</p>';deviceControls.dataset.ready='true';}
-    if(sc('server-camera-use-device-location'))sc('server-camera-use-device-location').disabled=serverCamera.busy||serverCamera.phase==='running';
+    const supported=Boolean(window.DevicePosition?.available()||window.AndroidScanner?.deviceLocationAvailable);
+    deviceControls.hidden=!sc('server-camera-report-location')?.checked;
+    if(!deviceControls.dataset.ready){deviceControls.innerHTML='<label class="camera-switch"><input type="checkbox" id="server-camera-use-device-location">使用设备位置上报</label><p id="server-camera-device-status" class="setting-note">开始扫描时申请定位权限并获取当前位置，仅用于本次扫码；需 HTTPS 或本机 localhost。重新开始会重新定位。</p>';deviceControls.dataset.ready='true';}
+    if(sc('server-camera-use-device-location'))sc('server-camera-use-device-location').disabled=!supported||serverCamera.busy||serverCamera.phase==='running';
   }
   if(!sc('server-camera-root'))return;
   const c=serverCamera,locked=c.phase==='running'||c.busy;
@@ -158,12 +158,20 @@ async function startServerCamera(){
   if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){scMessage('摄像头需要 HTTPS，请在系统浏览器中打开入口。');return;}
   c.busy=true;c.result=null;c.rowsKey='';c.runId='';const generation=++c.generation;renderServerCameraState();scMessage('请允许使用摄像头，开始后连续 JPEG 将上传到服务器。');
   try{
+    let deviceLocation;
+    if(useDeviceLocation()){
+      c.locating=true;scMessage('正在获取设备当前位置，请允许定位权限…');
+      try{deviceLocation=await window.DevicePosition.get();}finally{c.locating=false;}
+      if(generation!==c.generation)return;
+      if(document.hidden)throw new Error('页面已进入后台，请返回后重新开始');
+      if(sc('server-camera-device-status'))sc('server-camera-device-status').textContent=`本次定位报告误差约 ${Math.ceil(deviceLocation.accuracy)} 米；重新开始可刷新位置。`;
+    }
     const stream=await navigator.mediaDevices.getUserMedia(QRVision.constraints());
     if(generation!==c.generation){stream.getTracks().forEach(track=>track.stop());return;}
     c.stream=stream;const video=sc('server-camera-video');video.srcObject=stream;await video.play();
     if(generation!==c.generation)return;
     void QRVision.focus(stream.getVideoTracks()[0]);
-    const payload={account_ids:accounts};if(location)payload.location=location;
+    const payload={account_ids:accounts};if(location)payload.location=location;if(deviceLocation)payload.device_location=deviceLocation;
     const result=await scRequest('start',c.capability?(c.pickUsers?payload:{}):payload);
     if(generation!==c.generation){
       const path=c.capability?'/scan-api/close':`/api/camera-stream/${encodeURIComponent(result.id)}/stop`;
@@ -206,7 +214,7 @@ async function startAndroidCamera(accounts,location){
     let deviceLocation;
     if(useDeviceLocation()){
       scMessage('正在获取设备当前位置，请允许安卓定位权限…');
-      deviceLocation=await window.AndroidScanner.getDeviceLocation();
+      deviceLocation=await (window.DevicePosition?.get()||window.AndroidScanner.getDeviceLocation());
       if(generation!==c.generation)return;
       if(sc('server-camera-device-status'))sc('server-camera-device-status').textContent=`本次使用设备位置，报告误差约 ${Math.ceil(deviceLocation.accuracy)} 米；停止后重新开始可刷新位置。`;
     }
@@ -335,9 +343,10 @@ window.addEventListener('pagehide',()=>{
   stopServerCamera('',true);
 });
 document.addEventListener('visibilitychange',()=>{
+  if(serverCamera.locating&&!serverCamera.runId)return;
   if(serverCamera.native&&serverCamera.busy&&!serverCamera.runId)return; // Android owns the permission-dialog lifecycle.
   if(document.hidden&&(serverCamera.phase==='running'||serverCamera.busy))stopServerCamera('页面已进入后台，手机和服务器扫描已停止。');
 });
 if(document.querySelector('[data-scan-capability]'))void initializeServerScanLink();
-function useDeviceLocation(){return Boolean(window.AndroidScanner?.deviceLocationAvailable&&sc('server-camera-report-location')?.checked&&sc('server-camera-use-device-location')?.checked);}
-window.onAndroidCapabilities=()=>renderServerCameraState();
+function useDeviceLocation(){return Boolean((window.DevicePosition?.available()||window.AndroidScanner?.deviceLocationAvailable)&&sc('server-camera-report-location')?.checked&&sc('server-camera-use-device-location')?.checked);}
+window.onAndroidCapabilities=()=>{renderServerCameraState();if(typeof bulkDraw==='function')bulkDraw();};
