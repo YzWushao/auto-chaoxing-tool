@@ -18,6 +18,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
+import android.webkit.GeolocationPermissions;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -109,6 +110,9 @@ public final class MainActivity extends AppCompatActivity {
     private PermissionRequest webPermission;
     private boolean foreground, requestingCamera, resumeCamera;
     private boolean requestingLocation;
+    private boolean resumeLocation, locationPermissionOnly;
+    private GeolocationPermissions.Callback webLocationCallback;
+    private String webLocationOrigin="";
     private String locationId="", locationOrigin="";
     private JavaScriptReplyProxy locationReply;
     private DeviceLocation deviceLocation;
@@ -116,9 +120,13 @@ public final class MainActivity extends AppCompatActivity {
     private final ActivityResultLauncher<String[]> locationPermission=registerForActivityResult(
         new ActivityResultContracts.RequestMultiplePermissions(), allowed -> {
             requestingLocation=false;
-            if(Boolean.TRUE.equals(allowed.get(Manifest.permission.ACCESS_FINE_LOCATION))||Boolean.TRUE.equals(allowed.get(Manifest.permission.ACCESS_COARSE_LOCATION)))
-                handler.postDelayed(()->startDeviceLocation(),250);
-            else cancelDeviceLocation("未允许定位权限，请重新选择位置来源");
+            boolean granted=hasLocationPermission();
+            finishWebLocationPermission(granted);
+            if(locationPermissionOnly){locationPermissionOnly=false;toast(granted?"定位权限已允许，可返回签到页使用设备位置":"未允许定位权限，可在应用权限设置中开启");}
+            if(locationReply!=null){
+                if(granted){resumeLocation=true;if(foreground)startDeviceLocation();}
+                else cancelDeviceLocation("未允许定位权限，请在菜单中的定位权限与测试中处理");
+            }
         });
 
     private final ActivityResultLauncher<String> cameraPermission = registerForActivityResult(
@@ -318,6 +326,7 @@ public final class MainActivity extends AppCompatActivity {
     private void configureWeb() {
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setGeolocationEnabled(true);
         web.getSettings().setAllowFileAccess(false);
         web.getSettings().setAllowContentAccess(false);
         web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -342,6 +351,15 @@ public final class MainActivity extends AppCompatActivity {
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
+            @Override public void onGeolocationPermissionsShowPrompt(String source,GeolocationPermissions.Callback callback){
+                runOnUiThread(()->{
+                    if(!foreground||!trustedPage()||!sameOrigin(Uri.parse(source))||webLocationCallback!=null||requestingLocation){callback.invoke(source,false,false);return;}
+                    webLocationOrigin=source;webLocationCallback=callback;
+                    if(hasLocationPermission())finishWebLocationPermission(true);
+                    else requestLocationPermission();
+                });
+            }
+            @Override public void onGeolocationPermissionsHidePrompt(){finishWebLocationPermission(false);}
             @Override public boolean onShowFileChooser(WebView view,ValueCallback<Uri[]> callback,FileChooserParams params) {
                 if (!trustedPage()) return false;
                 if (fileCallback!=null) fileCallback.onReceiveValue(null);
@@ -404,15 +422,17 @@ public final class MainActivity extends AppCompatActivity {
     private void handleMessage(JSONObject data,JavaScriptReplyProxy reply) {
         switch (data.optString("type")) {
             case "capabilities":
-                reply.postMessage("{\"type\":\"capabilities\",\"device_location\":true}");break;
+                reply.postMessage("{\"type\":\"capabilities\",\"device_location\":true,\"app_version\":\"0.12.1\",\"version_code\":14}");break;
             case "device_location":
-                if(!foreground||requestingLocation||!scanId.isEmpty())return;
+                if(!foreground||requestingLocation||!scanId.isEmpty()){
+                    try{reply.postMessage(new JSONObject().put("type","device_location").put("id",data.optString("id")).put("error","请保持应用在前台，并停止当前扫描后重新定位").toString());}catch(JSONException ignored){ }
+                    return;
+                }
                 cancelDeviceLocation("定位已取消");
                 locationId=data.optString("id");if(!locationId.matches("location-[0-9]{1,10}")){locationId="";return;}
                 locationReply=reply;locationOrigin=origin;
-                if(ContextCompat.checkSelfPermission(this,Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
-                    ||ContextCompat.checkSelfPermission(this,Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED)startDeviceLocation();
-                else {requestingLocation=true;locationPermission.launch(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION});}
+                if(hasLocationPermission())startDeviceLocation();
+                else requestLocationPermission();
                 break;
             case "cancel_location":cancelDeviceLocation("定位已取消");break;
             case "layout":
@@ -484,6 +504,7 @@ public final class MainActivity extends AppCompatActivity {
     }
     private void closeScanner(String message,boolean notify) {
         cancelDeviceLocation("定位已取消");
+        finishWebLocationPermission(false);
         cameraGeneration++;
         if(notify)send("closed",message);
         handler.removeCallbacks(report);scanId="";scanReply=null;latestQr="";latestAt=0;
@@ -508,10 +529,11 @@ public final class MainActivity extends AppCompatActivity {
         menu.getMenu().add("连接服务器").setOnMenuItemClickListener(item->{configureServer();return true;});
         menu.getMenu().add("刷新页面").setOnMenuItemClickListener(item->{closeScanner("页面已刷新",true);web.reload();return true;});
         menu.getMenu().add("检查更新").setOnMenuItemClickListener(item->{if(updates!=null)updates.check(true);return true;});
+        menu.getMenu().add("定位权限与测试").setOnMenuItemClickListener(item->{showLocationPermission();return true;});
         menu.getMenu().add("打开一次性扫码链接").setOnMenuItemClickListener(item->{openScanLink();return true;});
         menu.getMenu().add("退出控制台登录").setOnMenuItemClickListener(item->{
             closeScanner("已退出",true);if(trustedPage())web.evaluateJavascript("document.getElementById('logout')?.click();",null);return true;});
-        menu.getMenu().add("关于与源码").setOnMenuItemClickListener(item->{new AlertDialog.Builder(this).setTitle("超星工具 0.12.0")
+        menu.getMenu().add("关于与源码").setOnMenuItemClickListener(item->{new AlertDialog.Builder(this).setTitle("超星工具 0.12.1")
             .setMessage("安卓原生相机与 ML Kit 扫码，服务器统一执行任务。\nAGPL-3.0 · 扫码交互参考 ChaoxingSignFaker。")
             .setNegativeButton("关闭",null).setPositiveButton("源码",(d,w)->openExternal(Uri.parse("https://github.com/YzWushao/auto-chaoxing-tool"))).show();return true;});
         menu.show();
@@ -535,8 +557,9 @@ public final class MainActivity extends AppCompatActivity {
         try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(ActivityNotFoundException e){toast("没有可用的浏览器");}
     }
     private void toast(String text){Toast.makeText(this,text,Toast.LENGTH_LONG).show();}
-    @Override protected void onResume(){super.onResume();foreground=true;if(web!=null)web.onResume();if(resumeCamera&&!scanId.isEmpty()){resumeCamera=false;bindCamera();}if(updates!=null)updates.check(false);}
+    @Override protected void onResume(){super.onResume();foreground=true;if(web!=null)web.onResume();if(resumeLocation&&locationReply!=null)startDeviceLocation();if(resumeCamera&&!scanId.isEmpty()){resumeCamera=false;bindCamera();}if(updates!=null&&!requestingLocation)updates.check(false);}
     private void startDeviceLocation(){
+        resumeLocation=false;
         if(locationReply==null||!foreground||!trustedPage()||!origin.equals(locationOrigin)){cancelDeviceLocation("页面已变化，请重新定位");return;}
         deviceLocation=new DeviceLocation(this,handler,fix->finishDeviceLocation(fix,""),error->finishDeviceLocation(null,error));deviceLocation.start();
     }
@@ -547,9 +570,33 @@ public final class MainActivity extends AppCompatActivity {
             if(fix!=null)message.put("location",fix);else message.put("error",error);
             locationReply.postMessage(message.toString());
         } catch(Exception ignored){ }
-        if(deviceLocation!=null)deviceLocation.cancel();deviceLocation=null;locationReply=null;locationId="";locationOrigin="";
+        if(deviceLocation!=null)deviceLocation.cancel();deviceLocation=null;locationReply=null;locationId="";locationOrigin="";resumeLocation=false;
     }
     private void cancelDeviceLocation(String error){finishDeviceLocation(null,error);}
+    private boolean hasLocationPermission(){return ContextCompat.checkSelfPermission(this,Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
+        ||ContextCompat.checkSelfPermission(this,Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED;}
+    private void requestLocationPermission(){
+        requestingLocation=true;
+        locationPermission.launch(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION});
+    }
+    private void finishWebLocationPermission(boolean granted){
+        if(webLocationCallback==null)return;
+        GeolocationPermissions.Callback callback=webLocationCallback;String source=webLocationOrigin;
+        webLocationCallback=null;webLocationOrigin="";
+        callback.invoke(source,granted&&trustedPage()&&sameOrigin(Uri.parse(source)),false);
+    }
+    private void showLocationPermission(){
+        String status=hasLocationPermission()?"已允许定位权限":"尚未允许定位权限";
+        new AlertDialog.Builder(this).setTitle("定位权限与测试 · v0.12.1")
+            .setMessage(status+"\n点击申请后会显示系统授权窗口；如已被永久拒绝，可进入应用权限设置。这里只检查权限，不上传位置。")
+            .setNegativeButton("关闭",null).setNeutralButton("应用权限设置",(d,w)->{
+                try{startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName())));}catch(Exception e){toast("无法打开应用设置，请从系统设置进入");}
+            }).setPositiveButton("申请定位权限",(d,w)->{
+                if(hasLocationPermission()){toast("定位权限已允许，请检查系统位置服务是否开启");return;}
+                if(requestingLocation){toast("正在等待系统定位授权");return;}
+                locationPermissionOnly=true;requestLocationPermission();
+            }).show();
+    }
     @Override protected void onPause(){foreground=false;if(!requestingCamera&&!requestingLocation)closeScanner("应用已进入后台，扫描已停止",true);CookieManager.getInstance().flush();if(web!=null)web.onPause();super.onPause();}
     @Override protected void onDestroy(){
         if(updates!=null)updates.close();

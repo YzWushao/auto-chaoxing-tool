@@ -4,11 +4,16 @@ window.AndroidScanner=(()=>{
   const bridge=window.AutoChaoxingNative;
   if(!bridge||typeof bridge.postMessage!=='function')return null;
   document.documentElement.classList.add('android-native');
-  let current=null,lastLayout='',generation=0,locationTask=null,deviceLocationAvailable=false;
+  let current=null,lastLayout='',generation=0,locationTask=null,locationGeneration=0,deviceLocationAvailable=false;
+  const capabilityWaiters=new Set();
   const post=data=>bridge.postMessage(JSON.stringify(data));
   bridge.onmessage=event=>{
     let data;try{data=JSON.parse(event.data);}catch{return;}
-    if(data.type==='capabilities'){deviceLocationAvailable=data.device_location===true;window.onAndroidCapabilities?.();return;}
+    if(data.type==='capabilities'){
+      deviceLocationAvailable=data.device_location===true;
+      for(const finish of capabilityWaiters)finish(deviceLocationAvailable);capabilityWaiters.clear();
+      window.onAndroidCapabilities?.();return;
+    }
     if(data.type==='device_location'){
       const task=locationTask;if(!task||task.id!==data.id)return;
       locationTask=null;clearTimeout(task.timeout);
@@ -52,17 +57,28 @@ window.AndroidScanner=(()=>{
   setInterval(layout,750);
   function configureInterval(interval){if(current)post({type:'interval',id:current.id,interval:Math.max(100,interval)});}
   function cancelLocation(){
+    locationGeneration++;
     if(!locationTask)return;const task=locationTask;locationTask=null;
     clearTimeout(task.timeout);task.reject(new Error('定位已取消'));post({type:'cancel_location',id:task.id});
   }
-  function getDeviceLocation(){
-    if(!deviceLocationAvailable)return Promise.reject(new Error('请先安装支持设备定位的新版 APK'));
-    cancelLocation();return new Promise((resolve,reject)=>{
+  function waitForDeviceLocation(){
+    if(deviceLocationAvailable)return Promise.resolve(true);
+    return new Promise(resolve=>{
+      const finish=value=>{clearTimeout(timeout);capabilityWaiters.delete(finish);resolve(value);};
+      const timeout=setTimeout(()=>finish(false),2000);capabilityWaiters.add(finish);
+      post({type:'capabilities'});
+    });
+  }
+  async function getDeviceLocation(){
+    cancelLocation();const requested=locationGeneration;
+    if(!await waitForDeviceLocation())throw new Error('当前 APK 未支持定位授权，请升级新版 APK，或在系统浏览器打开');
+    if(requested!==locationGeneration)throw new Error('定位已取消');
+    return new Promise((resolve,reject)=>{
       const id='location-'+String(++generation);
       locationTask={id,resolve,reject,timeout:setTimeout(()=>cancelLocation(),60000)};
       post({type:'device_location',id});
     });
   }
   setTimeout(()=>post({type:'capabilities'}),0);
-  return {start,stop,configureInterval,getDeviceLocation,cancelLocation,get deviceLocationAvailable(){return deviceLocationAvailable;}};
+  return {start,stop,configureInterval,getDeviceLocation,cancelLocation,waitForDeviceLocation,get deviceLocationAvailable(){return deviceLocationAvailable;}};
 })();

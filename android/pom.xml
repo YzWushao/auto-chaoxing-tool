@@ -3,10 +3,10 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>top.autochaoxing</groupId>
   <artifactId>auto-chaoxing-android</artifactId>
-  <version>0.12.0</version>
+  <version>0.12.1</version>
   <packaging>pom</packaging>
   <properties>
-    <android.versionCode>13</android.versionCode>
+    <android.versionCode>14</android.versionCode>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <python.executable>python</python.executable>
   </properties>

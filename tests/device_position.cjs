@@ -14,6 +14,8 @@ vm.runInContext(fs.readFileSync('web/device-position.js','utf8'),context);
   const before=calls;context.window.AndroidScanner={deviceLocationAvailable:true,getDeviceLocation:async()=>fresh};
   assert.equal((await device.get()).latitude,31.2);assert.equal(calls,before,'Android uses its native position provider');
   context.window.AndroidScanner.getDeviceLocation=async()=>({...fresh,captured_at:now/1000-120});await assert.rejects(device.get(),/过期/);
+  context.window.AndroidScanner={deviceLocationAvailable:false,waitForDeviceLocation:async()=>false};
+  await assert.rejects(device.get(),/APK/);assert.equal(calls,before,'Unsupported APK must not silently fall back to an unhandled WebView permission');
   delete context.window.AndroidScanner;context.window.isSecureContext=false;
   assert.equal(device.available(),false);await assert.rejects(device.get(),/HTTPS/);
   console.log('Explicit web/native position, permission errors, freshness, HTTPS and accuracy contract passed');

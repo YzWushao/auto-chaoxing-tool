@@ -4,7 +4,11 @@ window.DevicePosition={
   available(){return Boolean(window.AndroidScanner?.deviceLocationAvailable||(window.isSecureContext&&navigator.geolocation));},
   async get(){
     let fix;
-    if(window.AndroidScanner?.deviceLocationAvailable)fix=await window.AndroidScanner.getDeviceLocation();
+    if(window.AndroidScanner){
+      const supported=window.AndroidScanner.deviceLocationAvailable||await window.AndroidScanner.waitForDeviceLocation?.();
+      if(!supported)throw new Error('当前 APK 尚未支持定位授权，请更新 APK，或用系统浏览器打开');
+      fix=await window.AndroidScanner.getDeviceLocation();
+    }
     else{
       if(!window.isSecureContext)throw new Error('设备定位需要 HTTPS 或本机 localhost 访问');
       if(!navigator.geolocation)throw new Error('当前设备或浏览器不支持定位，请选择预设点位');
