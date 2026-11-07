@@ -14,7 +14,8 @@ SIGN_REQUIREMENT_MESSAGES = {
     'no_permission': '平台提示该用户无此活动的签到权限，请核对课程归属',
     'face_required': '此用户需要本人照片或人脸验证，请在签到中心或学习通处理',
     'official_face_required': '此用户需要在学习通完成官方人脸验证',
-    'location_required': '平台要求位置或未接受已提交位置，请核对实际所在位置',
+    'location_required': '平台要求提供位置，请选择实际所在位置后重新开始',
+    'location_rejected': '上报失败：平台未接受已提交的位置，已加入重试列表',
     'captcha_unavailable': '无法获取或校验滑块验证码，请在学习通核对活动状态并处理验证',
 }
 
@@ -69,16 +70,25 @@ class CameraSignService:
             parameters = {'activity_id': activity_id, 'source': selected['source'], 'kind': 'qr', 'qr': enc,
                           '_detected_kind': 'qr', 'verification_id': verification_id, 'face_id': face_id}
             if location:
-                if not isinstance(location, dict) or set(location) != {'school', 'name'} or not all(isinstance(v, str) for v in location.values()):
-                    raise ValueError('预设位置选择无效')
-                from .location_presets import resolve_point
-                point = resolve_point(self.signing.store, self.signing.preference_owner, location)
-                from .sign_coordinates import location_parameters
-                parameters.update(location_parameters(point))
-                parameters['location_preset'] = location
+                if isinstance(location, dict) and set(location) == {'device'}:
+                    fix = location['device']
+                    if not isinstance(fix, dict) or set(fix) != {'latitude','longitude','address'} or not all(isinstance(v,str) for v in fix.values()):
+                        raise ValueError('设备位置无效')
+                    parameters.update(fix)
+                else:
+                    self._preset_location(parameters, location)
             try:
                 result = self.signing.submit(owner, account_id, parameters)
             except SignRequirement as error:
                 error.activity = {'id': activity_id, 'source': selected['source'], 'phase': selected.get('phase', 'in')}
                 raise
             return {**result, 'activity_id': activity_id, 'title': selected['title'], 'source': selected['source'], 'phase': selected.get('phase', 'in')}
+
+    def _preset_location(self, parameters, location):
+        if not isinstance(location, dict) or set(location) != {'school', 'name'} or not all(isinstance(v, str) for v in location.values()):
+            raise ValueError('预设位置选择无效')
+        from .location_presets import resolve_point
+        point = resolve_point(self.signing.store, self.signing.preference_owner, location)
+        from .sign_coordinates import location_parameters
+        parameters.update(location_parameters(point))
+        parameters['location_preset'] = location

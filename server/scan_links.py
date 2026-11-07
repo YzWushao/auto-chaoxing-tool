@@ -412,7 +412,7 @@ def install_scan_routes(app, links):
     def start_stream():
         record = entry()
         options = payload()
-        fields = {'input', 'account_ids', 'location'} if record.get('picker') else {'input'}
+        fields = {'input', 'account_ids', 'location','device_location'} if record.get('picker') else {'input'}
         if set(options)-fields or options.get('input','jpeg') not in ('jpeg','native'):
             raise ValueError()
         links.status(record)
@@ -426,6 +426,8 @@ def install_scan_routes(app, links):
                     raise ValueError()
                 if options.get('location') != record.get('selected_location'):
                     raise ValueError()
+                if options.get('device_location') != record.get('device_location'):
+                    raise ValueError()
                 return jsonify(links.snapshot(record, run))
             def finished(summary):
                 with links.lock:
@@ -435,6 +437,8 @@ def install_scan_routes(app, links):
             prefs = links.store.preferences(links.camera.signing.preference_owner)
             accounts = links.select_users(record, options.get('account_ids')) if record.get('picker') else record['accounts']
             location = links.location_reference(record,options.get('location')) if record.get('picker') else None
+            from .device_location import device_location
+            location = device_location(options.get('device_location'),input_mode=options.get('input','jpeg'),preset=location) or location
             selected = [dict(id=a['id'],owner=a['owner'],name='当前用户') for a in accounts]
             run = streams.start(('scan',id(record)),selected,concurrency=prefs['camera_concurrency'],
                                 expires=record['expires'],allowed=record['allowed'],authority=lambda:links._alive(record),finished=finished,
@@ -442,6 +446,7 @@ def install_scan_routes(app, links):
                                 input_mode=options.get('input','jpeg'))
             record['accounts'] = accounts
             record['selected_location'] = options.get('location')
+            record['device_location'] = options.get('device_location')
             record['stream_id'] = run.id
             record['stream_result_access'] = True
             return jsonify(links.snapshot(record, run))

@@ -16,6 +16,7 @@ TEXT={'type':'string'}
 BOOL={'type':'boolean'}
 SOURCE={'type':'string','enum':['course'],'default':'course'}
 LOCATION=obj({'school':TEXT,'name':TEXT},['school','name'])
+DEVICE_LOCATION=obj({'latitude':{'type':'number','minimum':-90,'maximum':90},'longitude':{'type':'number','minimum':-180,'maximum':180},'accuracy':{'type':'number','exclusiveMinimum':0},'captured_at':{'type':'number','description':'Unix 秒，定位需在最近60秒内'}},['latitude','longitude','accuracy','captured_at'])
 API=obj({k:{'type':'string'} for k in API_DEFAULTS})
 API['properties']['cover_rate'].update(description='最低题库命中率，0～1 的比例字符串。低于阈值仅保存，不提交；未命中或匹配不完整的答案留空。网页以百分数显示，命中率不保证实际正确率。', default=API_DEFAULTS['cover_rate'])
 STUDY=obj({k:{'type':'boolean' if type(v) is bool else 'integer' if type(v) is int else 'number' if type(v) is float else 'string'} for k,v in STUDY_DEFAULTS.items()})
@@ -36,7 +37,7 @@ WRITES={
  'qr_create':('accounts:write','生成超星登录二维码，返回图像与轮询 ID',obj()),
  'qr_poll':('accounts:write','轮询本 API 密钥创建的登录二维码',obj({'account_id':TEXT})),
  'qr_cancel':('accounts:write','取消本 API 密钥的登录二维码',obj()),
- 'camera_stream_start':('sign:write','开始指定用户的连续扫码队列',obj({'account_ids':{'type':'array','items':TEXT,'minItems':1,'maxItems':200},'input':{'enum':['jpeg','native'],'default':'jpeg'},'location':LOCATION},['account_ids'])),
+ 'camera_stream_start':('sign:write','开始指定用户的连续扫码队列',obj({'account_ids':{'type':'array','items':TEXT,'minItems':1,'maxItems':200},'input':{'enum':['jpeg','native'],'default':'jpeg'},'location':LOCATION,'device_location':DEVICE_LOCATION},['account_ids'])),
  'camera_stream_frame':('sign:write','上传 JPEG，服务器识别并执行扫码队列',None),
  'camera_stream_native':('sign:write','向 native 扫码队列提交设备已识别的二维码',obj({'qr':TEXT},['qr'])),
  'camera_stream_stop':('sign:write','停止本 API 密钥创建的扫码队列',obj()),

@@ -10,9 +10,9 @@
   <link rel="stylesheet" href="/static/camera-sign.css?v=0.5.0">
   <link rel="stylesheet" href="/static/qr-vision.css?v=0.14.0">
   <link rel="stylesheet" href="/static/android-client.css?v=0.11.0">
-  <script src="/static/android-client.js?v=0.11.0" defer></script>
+  <script src="/static/android-client.js?v=0.18.0" defer></script>
   <script src="/static/qr-vision.js?v=0.13.1" defer></script>
-  <script src="/static/server-camera.js?v=0.16.2" defer></script>
+  <script src="/static/server-camera.js?v=0.18.0" defer></script>
 </head>
 <body>
   <main>
@@ -35,7 +35,7 @@
         <div class="status-bar"><h2>选择本次用户</h2><div class="camera-user-actions"><label class="camera-switch"><input type="checkbox" id="server-camera-select-all" role="switch" disabled>全选用户</label><span class="badge" id="server-camera-concurrency"></span></div></div>
         <p class="note" id="server-camera-user-summary"></p>
         <div class="camera-choice-list" id="server-camera-user-list"></div>
-        <div id="server-camera-location-panel" hidden><label class="camera-switch"><input type="checkbox" id="server-camera-report-location" role="switch">上报位置</label><div id="server-camera-location-list" class="camera-location-list" hidden></div><p class="note">开启后选择点位；坐标来自点位，位置说明统一使用学校位置。</p></div>
+        <div id="server-camera-location-panel" hidden><label class="camera-switch"><input type="checkbox" id="server-camera-report-location" role="switch">上报位置</label><div id="server-camera-device-controls" hidden></div><div id="server-camera-location-list" class="camera-location-list" hidden></div><p class="note">预设点位的位置说明统一使用学校位置。</p></div>
         <p class="note">手动勾选本次用户，开始后不能更换。需要更换用户时，请结束本次扫描，回 QQ 回复“扫码签到”获取新验证码。平台要求的额外验证沿用现有流程。</p>
       </section>
       <section class="card">

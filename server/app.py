@@ -45,6 +45,8 @@ def create_app(config=None, client_factory=ChaoxingClient):
                       DATA_DIR=os.getenv("AUTO_CHAOXING_DATA_DIR", str(ROOT / "data")))
     if config:
         app.config.update(config)
+    from .android_updates import install_android_updates
+    install_android_updates(app)
     store = Store(app.config["DATA_DIR"])
     app.secret_key = store.session_key
     app.session_interface = ConsoleSessionInterface()
@@ -368,7 +370,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def camera_stream_start():
         data = body()
         ids = data.get('account_ids')
-        if (set(data)-{'account_ids','location','input'} or data.get('input','jpeg') not in ('jpeg','native') or not isinstance(ids,list) or not 1 <= len(ids) <= 200
+        if (set(data)-{'account_ids','location','device_location','input'} or data.get('input','jpeg') not in ('jpeg','native') or not isinstance(ids,list) or not 1 <= len(ids) <= 200
                 or any(not isinstance(a,str) for a in ids)):
             raise ValueError('请选择本次扫码需要处理的用户')
         values = [account(a) for a in dict.fromkeys(ids)]
@@ -379,6 +381,8 @@ def create_app(config=None, client_factory=ChaoxingClient):
             if not any(s['school']==location['school'] and any(p['name']==location['name'] for p in s['points'])
                        for s in store.location_presets(g.admin['owner'])):
                 raise ValueError('预设点位已移除，请重新选择')
+        from .device_location import device_location
+        location = device_location(data.get('device_location'),input_mode=data.get('input','jpeg'),preset=location) or location
         prefs = store.preferences(g.admin['owner'])
         if g.api_key:
             api_token=request.headers.get('Authorization','')[7:]
@@ -637,6 +641,8 @@ def create_app(config=None, client_factory=ChaoxingClient):
         value, supplied = account(account_id), body()
         if 'qr' not in supplied or set(supplied)-{'qr', 'verification_id', 'location', 'face_id'}:
             raise ValueError('摄像头签到只接收已解码的二维码内容')
+        if supplied.get('location') is not None and (not isinstance(supplied['location'],dict) or set(supplied['location']) != {'school','name'}):
+            raise ValueError('此入口仅接收预设点位；设备定位请从安卓原生扫码开始')
         try:
             return jsonify(camera_sign.submit(value['owner'], account_id, supplied['qr'], supplied.get('verification_id'), supplied.get('location'), supplied.get('face_id')))
         except CameraRateLimit as error:

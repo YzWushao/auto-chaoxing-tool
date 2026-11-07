@@ -108,6 +108,18 @@ public final class MainActivity extends AppCompatActivity {
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest webPermission;
     private boolean foreground, requestingCamera, resumeCamera;
+    private boolean requestingLocation;
+    private String locationId="", locationOrigin="";
+    private JavaScriptReplyProxy locationReply;
+    private DeviceLocation deviceLocation;
+    private AppUpdates updates;
+    private final ActivityResultLauncher<String[]> locationPermission=registerForActivityResult(
+        new ActivityResultContracts.RequestMultiplePermissions(), allowed -> {
+            requestingLocation=false;
+            if(Boolean.TRUE.equals(allowed.get(Manifest.permission.ACCESS_FINE_LOCATION))||Boolean.TRUE.equals(allowed.get(Manifest.permission.ACCESS_COARSE_LOCATION)))
+                handler.postDelayed(()->startDeviceLocation(),250);
+            else cancelDeviceLocation("未允许定位权限，请重新选择位置来源");
+        });
 
     private final ActivityResultLauncher<String> cameraPermission = registerForActivityResult(
         new ActivityResultContracts.RequestPermission(), allowed -> {
@@ -173,6 +185,7 @@ public final class MainActivity extends AppCompatActivity {
                     .setNegativeButton("取消",null).setPositiveButton("退出",(d,w)->finish()).show();
             }
         });
+        updates=new AppUpdates(this,handler,()->origin,()->foreground);
         String saved=getPreferences(MODE_PRIVATE).getString("server_origin","");
         if (!saved.isEmpty()&&getPreferences(MODE_PRIVATE).getBoolean("remember",false)) {
             if(connect(saved)){hideLogin();web.loadUrl(origin+"/");}else showLogin();
@@ -374,7 +387,7 @@ public final class MainActivity extends AppCompatActivity {
                 origin=new URI("https",null,uri.getHost(),uri.getPort(),null,null,null).toString();
                 toast("请更新 Android System WebView 以启用原生扫码");
             }
-            title.setText("超星工具");return true;
+            title.setText("超星工具");handler.post(()->{if(updates!=null)updates.check(false);});return true;
         } catch (Exception e) { return false; }
     }
 
@@ -390,6 +403,18 @@ public final class MainActivity extends AppCompatActivity {
     }
     private void handleMessage(JSONObject data,JavaScriptReplyProxy reply) {
         switch (data.optString("type")) {
+            case "capabilities":
+                reply.postMessage("{\"type\":\"capabilities\",\"device_location\":true}");break;
+            case "device_location":
+                if(!foreground||requestingLocation||!scanId.isEmpty())return;
+                cancelDeviceLocation("定位已取消");
+                locationId=data.optString("id");if(!locationId.matches("location-[0-9]{1,10}")){locationId="";return;}
+                locationReply=reply;locationOrigin=origin;
+                if(ContextCompat.checkSelfPermission(this,Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
+                    ||ContextCompat.checkSelfPermission(this,Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED)startDeviceLocation();
+                else {requestingLocation=true;locationPermission.launch(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION});}
+                break;
+            case "cancel_location":cancelDeviceLocation("定位已取消");break;
             case "layout":
                 if(data.optBoolean("authenticated"))hideLogin();
                 else if("/".equals(Uri.parse(web.getUrl()).getPath())&&!loggingIn)showLogin();
@@ -458,6 +483,7 @@ public final class MainActivity extends AppCompatActivity {
         } catch(JSONException|IllegalStateException ignored) { }
     }
     private void closeScanner(String message,boolean notify) {
+        cancelDeviceLocation("定位已取消");
         cameraGeneration++;
         if(notify)send("closed",message);
         handler.removeCallbacks(report);scanId="";scanReply=null;latestQr="";latestAt=0;
@@ -481,10 +507,11 @@ public final class MainActivity extends AppCompatActivity {
         PopupMenu menu=new PopupMenu(this,anchor);
         menu.getMenu().add("连接服务器").setOnMenuItemClickListener(item->{configureServer();return true;});
         menu.getMenu().add("刷新页面").setOnMenuItemClickListener(item->{closeScanner("页面已刷新",true);web.reload();return true;});
+        menu.getMenu().add("检查更新").setOnMenuItemClickListener(item->{if(updates!=null)updates.check(true);return true;});
         menu.getMenu().add("打开一次性扫码链接").setOnMenuItemClickListener(item->{openScanLink();return true;});
         menu.getMenu().add("退出控制台登录").setOnMenuItemClickListener(item->{
             closeScanner("已退出",true);if(trustedPage())web.evaluateJavascript("document.getElementById('logout')?.click();",null);return true;});
-        menu.getMenu().add("关于与源码").setOnMenuItemClickListener(item->{new AlertDialog.Builder(this).setTitle("超星工具 0.11.1")
+        menu.getMenu().add("关于与源码").setOnMenuItemClickListener(item->{new AlertDialog.Builder(this).setTitle("超星工具 0.12.0")
             .setMessage("安卓原生相机与 ML Kit 扫码，服务器统一执行任务。\nAGPL-3.0 · 扫码交互参考 ChaoxingSignFaker。")
             .setNegativeButton("关闭",null).setPositiveButton("源码",(d,w)->openExternal(Uri.parse("https://github.com/YzWushao/auto-chaoxing-tool"))).show();return true;});
         menu.show();
@@ -508,9 +535,24 @@ public final class MainActivity extends AppCompatActivity {
         try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(ActivityNotFoundException e){toast("没有可用的浏览器");}
     }
     private void toast(String text){Toast.makeText(this,text,Toast.LENGTH_LONG).show();}
-    @Override protected void onResume(){super.onResume();foreground=true;if(web!=null)web.onResume();if(resumeCamera&&!scanId.isEmpty()){resumeCamera=false;bindCamera();}}
-    @Override protected void onPause(){foreground=false;if(!requestingCamera)closeScanner("应用已进入后台，扫描已停止",true);CookieManager.getInstance().flush();if(web!=null)web.onPause();super.onPause();}
+    @Override protected void onResume(){super.onResume();foreground=true;if(web!=null)web.onResume();if(resumeCamera&&!scanId.isEmpty()){resumeCamera=false;bindCamera();}if(updates!=null)updates.check(false);}
+    private void startDeviceLocation(){
+        if(locationReply==null||!foreground||!trustedPage()||!origin.equals(locationOrigin)){cancelDeviceLocation("页面已变化，请重新定位");return;}
+        deviceLocation=new DeviceLocation(this,handler,fix->finishDeviceLocation(fix,""),error->finishDeviceLocation(null,error));deviceLocation.start();
+    }
+    private void finishDeviceLocation(JSONObject fix,String error){
+        if(locationReply==null)return;
+        if(trustedPage()&&(foreground||fix==null)&&origin.equals(locationOrigin))try {
+            JSONObject message=new JSONObject().put("type","device_location").put("id",locationId);
+            if(fix!=null)message.put("location",fix);else message.put("error",error);
+            locationReply.postMessage(message.toString());
+        } catch(Exception ignored){ }
+        if(deviceLocation!=null)deviceLocation.cancel();deviceLocation=null;locationReply=null;locationId="";locationOrigin="";
+    }
+    private void cancelDeviceLocation(String error){finishDeviceLocation(null,error);}
+    @Override protected void onPause(){foreground=false;if(!requestingCamera&&!requestingLocation)closeScanner("应用已进入后台，扫描已停止",true);CookieManager.getInstance().flush();if(web!=null)web.onPause();super.onPause();}
     @Override protected void onDestroy(){
+        if(updates!=null)updates.close();
         closeScanner("应用已关闭",false);handler.removeCallbacksAndMessages(null);analyzerExecutor.shutdown();loginExecutor.shutdown();
         if(fileCallback!=null)fileCallback.onReceiveValue(null);if(webPermission!=null)webPermission.deny();
         if(!getPreferences(MODE_PRIVATE).getBoolean("remember",false))CookieManager.getInstance().removeAllCookies(null);

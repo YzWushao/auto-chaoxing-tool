@@ -10,6 +10,7 @@ work/
 *.zip
 node_modules/
 dist/
+releases/
 build/
 .DS_Store
 cookies.txt

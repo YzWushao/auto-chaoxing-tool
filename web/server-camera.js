@@ -19,10 +19,11 @@ function serverCameraLocationChoices(locations){
   return locations.map(p=>`<label class="camera-choice"><input type="radio" name="server-camera-location" value="${scEsc(p.id)}"><span>${scEsc(p.school+' · '+p.name)}<small>学校位置：${scEsc(p.address||p.school)}</small></span></label>`).join('')||'<p class="setting-note">暂无预设点位，请先到设置创建学校、填写学校位置并添加点位。</p>';
 }
 function serverCameraLocationControls(locations){
-  return `<section id="server-camera-location-panel"><label class="camera-switch"><input type="checkbox" id="server-camera-report-location" role="switch">上报位置</label><div class="camera-location-list" id="server-camera-location-list" hidden>${serverCameraLocationChoices(locations)}</div><p class="setting-note">关闭时不提交位置；开启后选择点位，位置说明统一使用学校位置。</p></section>`;
+  return `<section id="server-camera-location-panel"><label class="camera-switch"><input type="checkbox" id="server-camera-report-location" role="switch">上报位置</label><div id="server-camera-device-controls" hidden></div><div class="camera-location-list" id="server-camera-location-list" hidden>${serverCameraLocationChoices(locations)}</div><p class="setting-note">关闭时不提交位置；预设点位的位置说明统一使用学校位置。</p></section>`;
 }
 function selectedServerCameraLocation(){
   if(!sc('server-camera-report-location')?.checked)return null;
+  if(useDeviceLocation())return null;
   const value=document.querySelector('[name="server-camera-location"]:checked')?.value;
   if(!value)throw new Error('已开启上报位置，请选择一个点位。');
   if(serverCamera.capability)return value;
@@ -84,6 +85,13 @@ async function scRequest(action,body,signal){
 }
 function scMessage(text){if(sc('server-camera-status'))sc('server-camera-status').textContent=text;}
 function renderServerCameraState(data=serverCamera.result){
+  const deviceControls=sc('server-camera-device-controls');
+  if(deviceControls){
+    const supported=Boolean(window.AndroidScanner?.deviceLocationAvailable);
+    deviceControls.hidden=!supported||!sc('server-camera-report-location')?.checked;
+    if(supported&&!deviceControls.dataset.ready){deviceControls.innerHTML='<label class="camera-switch"><input type="checkbox" id="server-camera-use-device-location">使用设备位置上报</label><p id="server-camera-device-status" class="setting-note">开始扫描时申请安卓定位权限并获取当前位置，仅用于本次扫码；重新开始会重新定位。</p>';deviceControls.dataset.ready='true';}
+    if(sc('server-camera-use-device-location'))sc('server-camera-use-device-location').disabled=serverCamera.busy||serverCamera.phase==='running';
+  }
   if(!sc('server-camera-root'))return;
   const c=serverCamera,locked=c.phase==='running'||c.busy;
   updateServerCameraZoom();
@@ -93,19 +101,20 @@ function renderServerCameraState(data=serverCamera.result){
   if(selectAll)selectAll.disabled=locked||(c.capability&&(!c.csrf||c.phase==='ended'));
   if(sc('server-camera-user-list'))sc('server-camera-user-list').hidden=Boolean(selectAll?.checked);
   if(sc('server-camera-user-summary'))sc('server-camera-user-summary').textContent=selectAll?.checked?`已全选 ${selectedServerCameraUsers().length} 位可用用户；关闭开关可手动选择。`:`已选择 ${selectedServerCameraUsers().length} 位用户`;
-  if(sc('server-camera-location-list'))sc('server-camera-location-list').hidden=!sc('server-camera-report-location')?.checked;
+  if(sc('server-camera-location-list'))sc('server-camera-location-list').hidden=!sc('server-camera-report-location')?.checked||useDeviceLocation();
   document.querySelectorAll('[name="server-camera-user"],[name="server-camera-location"],#server-camera-report-location').forEach(input=>input.disabled=locked||(c.capability&&c.phase==='ended')||input.dataset.unavailable==='true');
   if(!data)return;
   scMessage(data.message);
   sc('server-camera-counter').textContent=c.native?`原生识别 · 已接收 ${data.decoded_frames||0} 次有效二维码`:`已接收 ${data.frames||0} 帧 · 已识别 ${data.decoded_frames||0} 帧`;
   const rowsKey=JSON.stringify(data.accounts||[]);
   if(c.rowsKey!==rowsKey){
-    sc('server-camera-results').innerHTML=(data.accounts||[]).map(a=>`<li><div class="camera-row-head"><strong>${scEsc(a.name)}</strong><span class="badge ${a.state==='succeeded'?'green':'purple'}">${scEsc({succeeded:'签到成功',waiting:'需要处理',submitting:'正在签到',pending:'等待扫码'}[a.state]||a.state)}</span></div><p>${scEsc(a.message)} · 提交 ${a.attempts} 次 · 失败 ${a.failures} 次</p></li>`).join('');
+    sc('server-camera-results').innerHTML=(data.accounts||[]).map(a=>`<li><div class="camera-row-head"><strong>${scEsc(a.name)}</strong><span class="badge ${a.state==='succeeded'?'green':'purple'}">${scEsc(a.state==='pending'&&a.retry_code==='location_rejected'?'上报失败 · 等待重试':({succeeded:'签到成功',waiting:'需要处理',submitting:'正在签到',pending:'等待扫码'}[a.state]||a.state))}</span></div><p>${scEsc(a.message)} · 提交 ${a.attempts} 次 · 失败 ${a.failures} 次</p></li>`).join('');
     c.rowsKey=rowsKey;
   }
   QRVision.outline(sc('server-camera-outline'),c.phase==='running'?data.detection:null);
 }
 function scRelease(){
+  window.AndroidScanner?.cancelLocation?.();
   const c=serverCamera;c.generation++;clearTimeout(c.timer);clearInterval(c.poll);c.abort?.abort();c.abort=null;
   if(c.native)window.AndroidScanner?.stop();c.nativeBusy=false;
   if(typeof cancelAnimationFrame==='function')cancelAnimationFrame(c.zoomFrame);c.zoomFrame=null;
@@ -194,6 +203,13 @@ async function startAndroidCamera(accounts,location){
   const c=serverCamera;c.native=true;c.busy=true;c.result=null;c.rowsKey='';c.runId='';
   const generation=++c.generation;renderServerCameraState();scMessage('正在启动安卓原生相机，请允许摄像头权限。');
   try{
+    let deviceLocation;
+    if(useDeviceLocation()){
+      scMessage('正在获取设备当前位置，请允许安卓定位权限…');
+      deviceLocation=await window.AndroidScanner.getDeviceLocation();
+      if(generation!==c.generation)return;
+      if(sc('server-camera-device-status'))sc('server-camera-device-status').textContent=`本次使用设备位置，报告误差约 ${Math.ceil(deviceLocation.accuracy)} 米；停止后重新开始可刷新位置。`;
+    }
     await window.AndroidScanner.start({interval:Math.max(100,(typeof state!=='undefined'?state.preferences?.camera_scan_interval||.1:.1)*1000),
       onClosed:message=>{if(generation===c.generation)stopServerCamera(message);},
       onScan:async qr=>{
@@ -208,7 +224,7 @@ async function startAndroidCamera(accounts,location){
         }finally{clearTimeout(timeout);if(c.abort===controller)c.abort=null;if(generation===c.generation)c.nativeBusy=false;}
       }});
     if(generation!==c.generation)return;
-    const payload={account_ids:accounts,input:'native'};if(location)payload.location=location;
+    const payload={account_ids:accounts,input:'native'};if(location)payload.location=location;if(deviceLocation)payload.device_location=deviceLocation;
     const result=await scRequest('start',c.capability?(c.pickUsers?payload:{input:'native'}):payload);
     if(generation!==c.generation){
       const path=c.capability?'/scan-api/close':`/api/camera-stream/${encodeURIComponent(result.id)}/stop`;
@@ -302,7 +318,7 @@ document.addEventListener('change',event=>{
       renderServerCameraState();
     }
   }
-  if(event.target.id==='server-camera-report-location')renderServerCameraState();
+  if(['server-camera-report-location','server-camera-use-device-location'].includes(event.target.id))renderServerCameraState();
   if(event.target.name==='server-camera-user')renderServerCameraState();
 });
 document.addEventListener('input',event=>{
@@ -323,3 +339,5 @@ document.addEventListener('visibilitychange',()=>{
   if(document.hidden&&(serverCamera.phase==='running'||serverCamera.busy))stopServerCamera('页面已进入后台，手机和服务器扫描已停止。');
 });
 if(document.querySelector('[data-scan-capability]'))void initializeServerScanLink();
+function useDeviceLocation(){return Boolean(window.AndroidScanner?.deviceLocationAvailable&&sc('server-camera-report-location')?.checked&&sc('server-camera-use-device-location')?.checked);}
+window.onAndroidCapabilities=()=>renderServerCameraState();

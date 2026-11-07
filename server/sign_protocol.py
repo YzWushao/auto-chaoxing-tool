@@ -89,7 +89,9 @@ def execute_sign(client, activity, params, supplied):
         if result == 'success2':
             raise SignRequirement('activity_ended', '签到已结束或迟到，平台未确认本次成功')
         if result.startswith('errorLocation'):
-            raise SignRequirement('location_required', '平台未接受此位置，请核对实际所在的预设点位')
+            if params.get('ifTiJiao') == '1':
+                raise SignRequirement('location_rejected', '上报失败：平台未接受已提交的位置，将按设置间隔重试')
+            raise SignRequirement('location_required', '平台要求提供位置，请选择实际所在位置后重新开始')
         from bs4 import BeautifulSoup
         text = BeautifulSoup(result, 'html.parser').get_text(' ', strip=True)[:200]
         raise PlatformError('签到未成功：'+(text or '平台未确认成功'))

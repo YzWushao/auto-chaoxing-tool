@@ -20,7 +20,7 @@ class CameraRun:
         self.wake = threading.Event()
         self.state, self.message = 'running', '等待手机上传摄像头画面'
         self.entries = {a['id']:dict(id=a['id'],owner=a['owner'],name=a['name'],state='pending',attempts=0,
-            failures=0,pass_failures=0,next_retry=0,message='等待扫码') for a in accounts}
+            failures=0,pass_failures=0,next_retry=0,retry_code='',message='等待扫码') for a in accounts}
         self.order = list(self.entries)
         self.concurrency = concurrency
         self.retry_interval = retry_interval
@@ -51,7 +51,7 @@ class CameraRun:
 
     def snapshot(self, private=False):
         with self.lock:
-            items = [dict(id=a['id'],name=a['name'],state=a['state'],attempts=a['attempts'],failures=a['failures'],message=a['message'])
+            items = [dict(id=a['id'],name=a['name'],state=a['state'],attempts=a['attempts'],failures=a['failures'],message=a['message'],retry_code=a['retry_code'])
                      for a in self.entries.values()]
             if private:
                 items = [{**a,'id':str(index),'name':'当前用户' if len(items)==1 else f'用户 {index+1}'} for index,a in enumerate(items)]
@@ -184,6 +184,7 @@ class CameraRun:
         item=self.entries[account_id]
         outcome,message='pending','平台尚未确认成功，将使用最新画面重试'
         rate_limited=False
+        retry_code=''
         try:
             with self.lock:
                 if self.state in TERMINAL:
@@ -200,7 +201,11 @@ class CameraRun:
         except CaptchaRequired:
             outcome,message='waiting','自动验证未通过，请在签到中心或官方客户端处理验证'
         except SignRequirement as error:
-            outcome,message='waiting',sign_requirement_message(error.code)
+            message=sign_requirement_message(error.code)
+            if error.code == 'location_rejected':
+                retry_code=error.code
+            else:
+                outcome='waiting'
         except (ValueError,PlatformError):
             pass
         except Exception:
@@ -209,6 +214,7 @@ class CameraRun:
             with self.lock:
                 self.inflight-=1
                 item['state'],item['message']=outcome,message
+                item['retry_code']=retry_code
                 item['next_retry']=time.monotonic()+self.retry_interval
                 if outcome in {'succeeded','waiting'}:
                     self.order=[v for v in self.order if v!=account_id]
@@ -218,7 +224,7 @@ class CameraRun:
                     item['failures']+=1;item['pass_failures']+=1
                     if item['pass_failures']>10:
                         self.order=[v for v in self.order if v!=account_id]+[account_id]
-                        item['pass_failures']=0;item['message']='本轮失败 11 次，已移至队尾'
+                        item['pass_failures']=0;item['message']=('上报失败，' if retry_code else '')+'本轮失败 11 次，已移至队尾'
             self.manager.sign_slots.release();self.wake.set()
             if outcome == 'waiting':
                 self.manager.camera.signing.store.event(

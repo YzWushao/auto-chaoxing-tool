@@ -4,10 +4,17 @@ window.AndroidScanner=(()=>{
   const bridge=window.AutoChaoxingNative;
   if(!bridge||typeof bridge.postMessage!=='function')return null;
   document.documentElement.classList.add('android-native');
-  let current=null,lastLayout='',generation=0;
+  let current=null,lastLayout='',generation=0,locationTask=null,deviceLocationAvailable=false;
   const post=data=>bridge.postMessage(JSON.stringify(data));
   bridge.onmessage=event=>{
     let data;try{data=JSON.parse(event.data);}catch{return;}
+    if(data.type==='capabilities'){deviceLocationAvailable=data.device_location===true;window.onAndroidCapabilities?.();return;}
+    if(data.type==='device_location'){
+      const task=locationTask;if(!task||task.id!==data.id)return;
+      locationTask=null;clearTimeout(task.timeout);
+      if(data.error)task.reject(new Error(data.error));else task.resolve(data.location);
+      return;
+    }
     const task=current;
     if(!task||data.id!==task.id)return;
     if(data.type==='started'){clearTimeout(task.timeout);task.resolve();}
@@ -44,5 +51,18 @@ window.AndroidScanner=(()=>{
   document.addEventListener('DOMContentLoaded',layout);
   setInterval(layout,750);
   function configureInterval(interval){if(current)post({type:'interval',id:current.id,interval:Math.max(100,interval)});}
-  return {start,stop,configureInterval};
+  function cancelLocation(){
+    if(!locationTask)return;const task=locationTask;locationTask=null;
+    clearTimeout(task.timeout);task.reject(new Error('定位已取消'));post({type:'cancel_location',id:task.id});
+  }
+  function getDeviceLocation(){
+    if(!deviceLocationAvailable)return Promise.reject(new Error('请先安装支持设备定位的新版 APK'));
+    cancelLocation();return new Promise((resolve,reject)=>{
+      const id='location-'+String(++generation);
+      locationTask={id,resolve,reject,timeout:setTimeout(()=>cancelLocation(),60000)};
+      post({type:'device_location',id});
+    });
+  }
+  setTimeout(()=>post({type:'capabilities'}),0);
+  return {start,stop,configureInterval,getDeviceLocation,cancelLocation,get deviceLocationAvailable(){return deviceLocationAvailable;}};
 })();
