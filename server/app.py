@@ -412,7 +412,7 @@ def create_app(config=None, client_factory=ChaoxingClient):
     def camera_stream_start():
         data = body()
         ids = data.get('account_ids')
-        if (set(data)-{'account_ids','location','device_location','input'} or data.get('input','jpeg') not in ('jpeg','native') or not isinstance(ids,list) or not 1 <= len(ids) <= 200
+        if (set(data)-{'account_ids','location','device_location','input','report_location'} or data.get('input','jpeg') not in ('jpeg','native') or not isinstance(ids,list) or not 1 <= len(ids) <= 200
                 or any(not isinstance(a,str) for a in ids)):
             raise ValueError('请选择本次扫码需要处理的用户')
         values = [account(a) for a in dict.fromkeys(ids)]
@@ -425,6 +425,8 @@ def create_app(config=None, client_factory=ChaoxingClient):
                 raise ValueError('预设点位已移除，请重新选择')
         from .device_location import device_location
         location = device_location(data.get('device_location'),input_mode=data.get('input','jpeg'),preset=location) or location
+        from .device_location import validate_location_reporting
+        validate_location_reporting(data, location)
         prefs = store.preferences(g.admin['owner'])
         if g.api_key:
             api_token=request.headers.get('Authorization','')[7:]

@@ -11,7 +11,8 @@ const context=vm.createContext({console,Promise,AbortController,JSON,Date,Map,Se
   setInterval:()=>1,clearInterval(){},setTimeout:()=>1,clearTimeout(){},
   fetch:async(path,options)=>{
     requests.push({path,...options});
-    const data={id:'native-run',input:'native',message:'offline',terminal:completed,state:completed?'completed':'running',accounts:[]};
+    const body=options.body?JSON.parse(options.body):{};
+    const data={id:'native-run',input:'native',message:'offline',terminal:completed,state:completed?'completed':'running',accounts:[],location_mode:body.device_location?'device':body.location?'preset':'none'};
     return {ok:true,status:200,json:async()=>data};
   }});
 vm.runInContext(fs.readFileSync('web/server-camera.js','utf8'),context);
@@ -34,9 +35,19 @@ vm.runInContext(fs.readFileSync('web/server-camera.js','utf8'),context);
   await vm.runInContext('startServerCamera()',context);
   const deviceRequest=JSON.parse(requests[count].body);
   assert.equal(deviceRequest.input,'native');assert.equal(deviceRequest.device_location.accuracy,12);
+  assert.equal(deviceRequest.report_location,true);
   assert.equal(deviceRequest.location,undefined);
   vm.runInContext("renderServerCameraState({accounts:[{name:'offline',state:'pending',retry_code:'location_rejected',message:'retry',attempts:1,failures:1}]})",context);
   assert.ok(element('server-camera-results').innerHTML.includes('上报失败'));
+  vm.runInContext('stopServerCamera()',context);
+  // A capability refresh during the start render must not turn a checked position into an unlocated request.
+  context.window.DevicePosition={available:()=>true,get:async()=>({latitude:31.2,longitude:121.4,accuracy:12,captured_at:123})};
+  context.window.AndroidScanner.deviceLocationAvailable=false;
+  vm.runInContext('const originalRenderForTest=renderServerCameraState;renderServerCameraState=(...args)=>{originalRenderForTest(...args);window.DevicePosition.available=()=>false;}',context);
+  const beforeRace=requests.length;
+  await vm.runInContext('startServerCamera()',context);
+  const raced=JSON.parse(requests[beforeRace].body);
+  assert.equal(raced.report_location,true);assert.equal(raced.device_location.latitude,31.2);
   vm.runInContext('stopServerCamera()',context);
   console.log('Native scanner starts explicitly, only sends QR results, stops after completion');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -5,6 +5,14 @@ import time
 from .sign_coordinates import location_parameters
 
 
+def validate_location_reporting(data, location):
+    if 'report_location' not in data:
+        return  # Older clients remain supported.
+    requested = data['report_location']
+    if type(requested) is not bool or requested != bool(location):
+        raise ValueError('上报位置与实际位置参数不一致，请重新选择点位或获取设备位置后开始')
+
+
 def device_location(value, *, input_mode, preset=None):
     if value is None:
         return None

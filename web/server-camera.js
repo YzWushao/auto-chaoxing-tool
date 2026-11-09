@@ -105,7 +105,7 @@ function renderServerCameraState(data=serverCamera.result){
   document.querySelectorAll('[name="server-camera-user"],[name="server-camera-location"],#server-camera-report-location').forEach(input=>input.disabled=locked||(c.capability&&c.phase==='ended')||input.dataset.unavailable==='true');
   if(!data)return;
   scMessage(data.message);
-  sc('server-camera-counter').textContent=c.native?`原生识别 · 已接收 ${data.decoded_frames||0} 次有效二维码`:`已接收 ${data.frames||0} 帧 · 已识别 ${data.decoded_frames||0} 帧`;
+  sc('server-camera-counter').textContent=(c.native?`原生识别 · 已接收 ${data.decoded_frames||0} 次有效二维码`:`已接收 ${data.frames||0} 帧 · 已识别 ${data.decoded_frames||0} 帧`)+` · 本轮位置：${({preset:'已绑定预设点位',device:'已绑定设备位置',none:'未上报'})[data.location_mode]||'服务器未确认'}`;
   const rowsKey=JSON.stringify(data.accounts||[]);
   if(c.rowsKey!==rowsKey){
     sc('server-camera-results').innerHTML=(data.accounts||[]).map(a=>`<li><div class="camera-row-head"><strong>${scEsc(a.name)}</strong><span class="badge ${a.state==='succeeded'?'green':'purple'}">${scEsc(a.state==='pending'&&a.retry_code==='location_rejected'?'上报失败 · 等待重试':({succeeded:'签到成功',waiting:'需要处理',submitting:'正在签到',pending:'等待扫码'}[a.state]||a.state))}</span></div><p>${scEsc(a.message)} · 提交 ${a.attempts} 次 · 失败 ${a.failures} 次</p></li>`).join('');
@@ -152,14 +152,16 @@ async function startServerCamera(){
   const c=serverCamera;if(c.phase==='running'||c.busy)return;
   const accounts=c.capability&&!c.pickUsers?[]:selectedServerCameraUsers();
   if((!c.capability||c.pickUsers)&&!accounts.length){scMessage('请先选择本次需要签到的用户。');return;}
+  // Capture the user's intent before rendering/permissions can change capability state.
+  const reportLocation=Boolean(sc('server-camera-report-location')?.checked),deviceLocationSelected=useDeviceLocation();
   let location;try{location=selectedServerCameraLocation();}catch(error){scMessage(error.message);return;}
-  if(window.AndroidScanner){await startAndroidCamera(accounts,location);return;}
+  if(window.AndroidScanner){await startAndroidCamera(accounts,location,{reportLocation,deviceLocationSelected});return;}
   c.native=false;
   if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){scMessage('摄像头需要 HTTPS，请在系统浏览器中打开入口。');return;}
   c.busy=true;c.result=null;c.rowsKey='';c.runId='';const generation=++c.generation;renderServerCameraState();scMessage('请允许使用摄像头，开始后连续 JPEG 将上传到服务器。');
   try{
     let deviceLocation;
-    if(useDeviceLocation()){
+    if(deviceLocationSelected){
       c.locating=true;scMessage('正在获取设备当前位置，请允许定位权限…');
       try{deviceLocation=await window.DevicePosition.get();}finally{c.locating=false;}
       if(generation!==c.generation)return;
@@ -172,12 +174,15 @@ async function startServerCamera(){
     if(generation!==c.generation)return;
     void QRVision.focus(stream.getVideoTracks()[0]);
     const payload={account_ids:accounts};if(location)payload.location=location;if(deviceLocation)payload.device_location=deviceLocation;
+    if(reportLocation){if(!location&&!deviceLocation)throw new Error('已开启上报位置，但未获取到位置，请重新选择或定位');payload.report_location=true;}
     const result=await scRequest('start',c.capability?(c.pickUsers?payload:{}):payload);
     if(generation!==c.generation){
       const path=c.capability?'/scan-api/close':`/api/camera-stream/${encodeURIComponent(result.id)}/stop`;
       void fetch(path,{method:'POST',credentials:'same-origin',headers:scHeaders(),body:'{}'}).catch(()=>{});return;
     }
-    c.runId=result.id;c.frameInterval=Math.max(200,(result.frame_interval||.2)*1000);c.phase='running';c.busy=false;video.dataset.live='true';scAccept(result,generation);
+    c.runId=result.id;
+    if(reportLocation&&!['preset','device'].includes(result.location_mode))throw new Error('服务器未确认位置已绑定，已停止扫描，请刷新后重试');
+    c.frameInterval=Math.max(200,(result.frame_interval||.2)*1000);c.phase='running';c.busy=false;video.dataset.live='true';scAccept(result,generation);
     startServerCameraZoomPreview(generation);
     const canvas=document.createElement('canvas'),context=canvas.getContext('2d',{alpha:false});
     if(!context)throw new Error('当前浏览器无法读取摄像头画面');
@@ -207,12 +212,12 @@ async function startServerCamera(){
     stopServerCamera(error.name==='NotAllowedError'?'摄像头权限尚未允许，请允许后重新开始。':error.message);
   }
 }
-async function startAndroidCamera(accounts,location){
+async function startAndroidCamera(accounts,location,selection={reportLocation:Boolean(location),deviceLocationSelected:useDeviceLocation()}){
   const c=serverCamera;c.native=true;c.busy=true;c.result=null;c.rowsKey='';c.runId='';
   const generation=++c.generation;renderServerCameraState();scMessage('正在启动安卓原生相机，请允许摄像头权限。');
   try{
     let deviceLocation;
-    if(useDeviceLocation()){
+    if(selection.deviceLocationSelected){
       scMessage('正在获取设备当前位置，请允许安卓定位权限…');
       deviceLocation=await (window.DevicePosition?.get()||window.AndroidScanner.getDeviceLocation());
       if(generation!==c.generation)return;
@@ -233,12 +238,15 @@ async function startAndroidCamera(accounts,location){
       }});
     if(generation!==c.generation)return;
     const payload={account_ids:accounts,input:'native'};if(location)payload.location=location;if(deviceLocation)payload.device_location=deviceLocation;
+    if(selection.reportLocation){if(!location&&!deviceLocation)throw new Error('已开启上报位置，但未获取到位置，请重新选择或定位');payload.report_location=true;}
     const result=await scRequest('start',c.capability?(c.pickUsers?payload:{input:'native'}):payload);
     if(generation!==c.generation){
       const path=c.capability?'/scan-api/close':`/api/camera-stream/${encodeURIComponent(result.id)}/stop`;
       void fetch(path,{method:'POST',credentials:'same-origin',headers:scHeaders(),body:'{}'}).catch(()=>{});return;
     }
-    c.runId=result.id;c.phase='running';c.busy=false;
+    c.runId=result.id;
+    if(selection.reportLocation&&!['preset','device'].includes(result.location_mode))throw new Error('服务器未确认位置已绑定，已停止扫描，请刷新后重试');
+    c.phase='running';c.busy=false;
     window.AndroidScanner.configureInterval?.(Math.max(100,(result.frame_interval||.1)*1000));
     scAccept(result,generation);
     c.poll=setInterval(()=>{if(generation===c.generation)void viewServerCameraResult();},1000);

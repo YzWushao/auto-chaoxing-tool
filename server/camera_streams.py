@@ -57,6 +57,7 @@ class CameraRun:
                 items = [{**a,'id':str(index),'name':'当前用户' if len(items)==1 else f'用户 {index+1}'} for index,a in enumerate(items)]
             return {'id':self.id,'state':self.state,'terminal':self.state in TERMINAL,'message':self.message,
                     'frame_interval':self.frame_interval,'input':self.input_mode,
+                    'location_mode':('device' if self.location and 'device' in self.location else 'preset' if self.location else 'none'),
                     'remaining_seconds':max(0,self.expires-time.monotonic()),'frames':self.frame_count,
                     'decoded_frames':self.decoded_count,'accounts':items,'detection':self.box}
 
